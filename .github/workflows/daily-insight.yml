@@ -1,5 +1,5 @@
 name: Daily AI Insight
-
+ 
 # 매일 아침 자동 실행 + 수동 실행(Actions 탭에서 "Run workflow") 둘 다 지원합니다.
 # ⚠ cron은 GitHub 서버 부하에 따라 예정 시각보다 몇 분~수십 분 늦게 실행될 수 있습니다(시각 보장 안 됨).
 # 한국 시간(KST) 오전 7:00 목표 → UTC 22:00(전날)로 설정 (KST = UTC+9)
@@ -7,22 +7,22 @@ on:
   schedule:
     - cron: '0 22 * * *'
   workflow_dispatch: {}
-
+ 
 permissions:
   contents: write   # data/latest-insight.json 커밋을 위해 필요
-
+ 
 jobs:
   generate-insight:
     runs-on: ubuntu-latest
     steps:
       - name: 저장소 체크아웃
         uses: actions/checkout@v4
-
+ 
       - name: Node.js 설치
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
+ 
       - name: 인사이트 생성
         env:
           # AI_PROVIDER: 'claude' 또는 'gemini' (기본값 gemini) — Repository variable로 등록해
@@ -31,8 +31,10 @@ jobs:
           AI_PROVIDER: ${{ vars.AI_PROVIDER }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 웹 검색 기반 대응 방안 기능에 사용 (무료, 카드 등록 불필요 — tavily.com 가입 후 발급)
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: node scripts/generate-insight.js
-
+ 
       - name: 결과 커밋 및 푸시
         run: |
           git config user.name "bridgeone-insight-bot"
@@ -40,3 +42,4 @@ jobs:
           git add data/latest-insight.json
           git diff --cached --quiet && echo "변경 없음 — 커밋 생략" || git commit -m "chore: 일일 AI 인사이트 갱신 ($(date -u +%Y-%m-%d))"
           git push
+ 
