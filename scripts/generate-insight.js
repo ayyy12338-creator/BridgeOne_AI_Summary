@@ -894,3 +894,199 @@ async function callClaude(ctx) {
       model: null, // 규칙만으로 판단, API 호출 생략(비용 절감)
     };
   }
+ 
+  const signalText = top.map((h, i) => `${i + 1}. ${h.text}${actionFor(h) ? ` (규칙상 권장 조치: ${actionFor(h)})` : ''}`).join('\n');
+ 
+  const prompt = `당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해 실무진에게 보고하는 애널리스트입니다.
+아래는 "최근 7일(${recent7[0]}~${recent7[6]})"을 "직전 7일(${prev7[0]}~${prev7[6]})"과 비교해 이미 규칙 기반으로 계산된 변동 신호 목록입니다.
+POUR 점유율: 직전 7일 ${pourSharePrev.toFixed(1)}% → 최근 7일 ${pourShareRecent.toFixed(1)}%
+POUR 연속 무공고 일수: ${pourDrySpell}일
+ 
+[감지된 신호 목록]
+${signalText}
+ 
+지시사항:
+- 위 신호 목록에 있는 내용만 근거로 사용하세요. 목록에 없는 원인이나 배경을 추측해서 만들어내지 마세요.
+- 여러 신호 사이에 연관성이 보이면 짚어주되, 확실하지 않으면 "확실하지 않음" 또는 "추가 확인 필요"라고 명시하세요.
+- 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 개조식(글머리 기호 없이 문장 단위로 끊어) 한국어로 3~5문장 이내로 작성하세요.
+- 존댓말을 사용하세요.`;
+ 
+  const commentary = await callAiProvider(prompt, 1024);
+  return { commentary, model: MODEL };
+}
+ 
+// ---------------------------------------------------------------------------
+// 4b. 월간 신호 전용 코멘트 — "구성 · 순위" / "원자료 표" 탭 종합 세션에 쓰입니다.
+//     callClaude()와 동일한 안전장치(신호만 근거로 사용, 신호 0건이면 API 호출 생략)를
+//     그대로 따르되, 프롬프트 관점(역할 설명)만 다릅니다.
+// ---------------------------------------------------------------------------
+async function callClaudeForSignals(highlights, opts) {
+  const top = highlights.slice(0, 8);
+  if (top.length === 0) {
+    return { commentary: opts.noSignalText, model: null }; // 신호 없음 → API 호출 생략(비용 절감)
+  }
+ 
+  const signalText = top.map((h, i) => `${i + 1}. ${h.text}${actionFor(h) ? ` (규칙상 권장 조치: ${actionFor(h)})` : ''}`).join('\n');
+ 
+  // periodOverride가 있으면(예: 주간 비교) 해당 문구를 그대로 쓰고, 없으면 기존 "이번 달 vs 전월" 문구를 씁니다.
+  const periodPhrase = opts.periodOverride || `"이번 달(${opts.latestYm})"을 "전월(${opts.prevYm})"과`;
+ 
+  const prompt = `${opts.roleDesc}
+아래는 ${periodPhrase} 비교해 이미 규칙 기반으로 계산된 변동 신호 목록입니다.
+${opts.extraContext ? `\n${opts.extraContext}\n` : ''}
+[감지된 신호 목록]
+${signalText}
+ 
+지시사항:
+- 위 신호 목록에 있는 내용만 근거로 사용하세요. 목록에 없는 원인이나 배경을 추측해서 만들어내지 마세요.
+- 여러 신호 사이에 연관성이 보이면 짚어주되, 확실하지 않으면 "확실하지 않음" 또는 "추가 확인 필요"라고 명시하세요.
+- 위에 "비교 기준" 안내가 있다면(현재 기간이 아직 진행 중이거나 일부만 집계된 경우), 감소/증가 폭을 단정적으로 "문제"라고 말하지 말고 이 점을 함께 언급하세요.
+- 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 문장 단위로 끊어 한국어로 2~4문장 이내로 작성하세요.
+- 존댓말을 사용하세요.`;
+ 
+  const commentary = await callAiProvider(prompt, 512);
+  return { commentary, model: MODEL };
+}
+ 
+// ---------------------------------------------------------------------------
+// 5. 메인 실행
+// ---------------------------------------------------------------------------
+async function main() {
+  console.log('[1/9] 구글 스프레드시트에서 데이터 가져오는 중...');
+  const [patentCsv, mainCsv] = await Promise.all([fetchCsv(PATENT_GID), fetchCsv(DATA_GID)]);
+  const patentRows = parseCsv(patentCsv);
+  const mainRows = parseCsv(mainCsv);
+  console.log(`  - 특허매핑 ${patentRows.length - 1}행, 원본데이터 ${mainRows.length - 1}행`);
+ 
+  console.log('[2/9] 대시보드와 동일한 규칙으로 집계 중...');
+  const ds = buildDatasets(patentRows, mainRows);
+ 
+  console.log('[3/9] 변동 신호(하이라이트) 계산 중...');
+  const ctx = computeHighlights(ds);
+  console.log(`  - 감지된 신호 ${ctx.highlights.length}건 (기준일 ${ctx.latestDate})`);
+ 
+  console.log('[4/9] Claude API로 오늘의 브리핑 코멘트 생성 중...');
+  const result = await callClaude(ctx);
+ 
+  console.log('[5/9] 웹 검색 기반 권장 조치 보강 생성 중 (오늘의 브리핑 상위 신호)...');
+  const webActions = await generateWebInformedActions(ctx.highlights);
+  console.log(webActions.length ? `  - ${webActions.length}건 생성됨` : '  - 생성 안 됨(신호 없음 또는 실패 — 규칙 기반 권장 조치만 표시됨)');
+ 
+  console.log('[6/9] 월간(전월 대비) 변동 신호 계산 중 — 구성 · 순위 / 원자료 표 탭...');
+  const mctx = computeMonthlySignals(ds);
+ 
+  let compositionResult = { commentary: null, model: null };
+  let rawdataResult = { commentary: null, model: null };
+  if (mctx.hasEnoughData) {
+    console.log(`  - 이번 달 ${mctx.latestYm} vs 전월 ${mctx.prevYm} / 구성 신호 ${mctx.compositionHighlights.length}건, 원자료 신호 ${mctx.rawdataHighlights.length}건`);
+    console.log('[7/9] Claude API로 탭별 종합(구성 · 순위 / 원자료 표) 코멘트 생성 중...');
+    if (mctx.comparisonNote) console.log(`  - ⚠ ${mctx.comparisonNote}`);
+    compositionResult = await callClaudeForSignals(mctx.compositionHighlights, {
+      latestYm: mctx.latestYm,
+      prevYm: mctx.prevYm,
+      roleDesc: '당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해, "공종 구성 및 업체별 순위" 관점에서 실무진에게 보고하는 애널리스트입니다.',
+      noSignalText: '전월 대비 구성비·공종·업체 순위에 뚜렷한 변동 신호가 감지되지 않았습니다. 특이사항 없이 안정적인 흐름입니다.',
+      extraContext: mctx.comparisonNote ? `※ 비교 기준: ${mctx.comparisonNote}` : null,
+    });
+    rawdataResult = await callClaudeForSignals(mctx.rawdataHighlights, {
+      latestYm: mctx.latestYm,
+      prevYm: mctx.prevYm,
+      roleDesc: '당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해, "월별 전체 물량 및 1위 업체 변동" 관점에서 실무진에게 보고하는 애널리스트입니다.',
+      noSignalText: '전월 대비 전체 물량·1위 업체 순위에 뚜렷한 변동 신호가 감지되지 않았습니다. 특이사항 없이 안정적인 흐름입니다.',
+      extraContext: mctx.comparisonNote ? `※ 비교 기준: ${mctx.comparisonNote}` : null,
+    });
+  } else {
+    console.log('  - 월 데이터가 2개월 미만이라 월간 비교를 건너뜁니다.');
+  }
+ 
+  console.log('[8/9] 주간(최근 N주 대비) 변동 신호 계산 중 — 추세 분석 탭 (주요 대분류 · 주차별)...');
+  const tctx = computeTrendWeeklySignals(ds);
+ 
+  let trendResult = { commentary: null, model: null };
+  if (tctx.hasEnoughData) {
+    console.log(`  - 최근 ${tctx.span}주 vs 직전 ${tctx.span}주 / 추세 신호 ${tctx.highlights.length}건`);
+    console.log('[9/9] Claude API로 추세 분석 탭 종합 코멘트 생성 중...');
+    if (tctx.comparisonNote) console.log(`  - ⚠ ${tctx.comparisonNote}`);
+    trendResult = await callClaudeForSignals(tctx.highlights, {
+      latestYm: null,
+      prevYm: null,
+      roleDesc: `당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해, "최근 몇 주간 대분류(POUR/다특허/DO/CNC/일반/타사)별 물량 흐름" 관점에서 실무진에게 보고하는 애널리스트입니다.`,
+      noSignalText: '최근 몇 주간 대분류별 물량에 뚜렷한 변동 신호가 감지되지 않았습니다. 특이사항 없이 안정적인 흐름입니다.',
+      extraContext: tctx.comparisonNote ? `※ 비교 기준: ${tctx.comparisonNote}` : null,
+      periodOverride: tctx.hasEnoughData ? `"최근 ${tctx.span}주(${tctx.recentWeeks[0]}~)"를 "직전 ${tctx.span}주(${tctx.prevWeeks[0]}~)"와` : null,
+    });
+  } else {
+    console.log('  - 주 데이터가 2주 미만이라 주간 비교를 건너뜁니다.');
+  }
+ 
+  const output = {
+    generated_at: new Date().toISOString(),
+    model: result.model,
+    latest_date: ctx.latestDate,
+    period: { recent7: [ctx.recent7[0], ctx.recent7[6]], prev7: [ctx.prev7[0], ctx.prev7[6]] },
+    pour_share: { recent: Number(ctx.pourShareRecent.toFixed(1)), prev: Number(ctx.pourSharePrev.toFixed(1)) },
+    pour_dry_spell_days: ctx.pourDrySpell,
+    highlights: ctx.highlights.slice(0, 10).map(h => ({
+      text: h.text, type: h.type, direction: h.direction, subject: h.subject || null,
+      action: actionFor(h),
+    })),
+    commentary: result.commentary,
+ 
+    // --- [v6] 오늘의 브리핑 상위 신호에 대한 웹 검색 기반 "권장 조치" 보강 (실패/신호없음 시 빈 배열) ---
+    highlight_actions_ai: webActions,
+    web_action_model: webActions.length ? SEARCH_MODEL : null,
+ 
+    // --- 구성 · 순위 / 원자료 표 탭의 "종합" 세션용 월간(전월 대비) AI 코멘트 ---
+    monthly_period: mctx.hasEnoughData ? {
+      latest: mctx.latestYm, prev: mctx.prevYm,
+      latest_month_complete: mctx.latestMonthComplete,
+      comparison_note: mctx.comparisonNote,
+    } : null,
+    composition_model: compositionResult.model,
+    composition_highlights: mctx.hasEnoughData ? mctx.compositionHighlights.slice(0, 8).map(h => ({
+      text: h.text, type: h.type, direction: h.direction, subject: h.subject || null,
+      action: actionFor(h),
+    })) : [],
+    composition_commentary: compositionResult.commentary,
+    rawdata_model: rawdataResult.model,
+    rawdata_highlights: mctx.hasEnoughData ? mctx.rawdataHighlights.slice(0, 8).map(h => ({
+      text: h.text, type: h.type, direction: h.direction, subject: h.subject || null,
+      action: actionFor(h),
+    })) : [],
+    rawdata_commentary: rawdataResult.commentary,
+ 
+    // --- "추세 분석" 탭의 "종합" 세션용 주간(주요 대분류 · 최근 N주 vs 직전 N주) AI 코멘트 ---
+    trend_period: tctx.hasEnoughData ? {
+      span_weeks: tctx.span,
+      recent_weeks: [tctx.recentWeeks[0], tctx.recentWeeks[tctx.recentWeeks.length - 1]],
+      prev_weeks: [tctx.prevWeeks[0], tctx.prevWeeks[tctx.prevWeeks.length - 1]],
+      comparison_note: tctx.comparisonNote,
+    } : null,
+    trend_model: trendResult.model,
+    trend_highlights: tctx.hasEnoughData ? tctx.highlights.slice(0, 8).map(h => ({
+      text: h.text, type: h.type, direction: h.direction, subject: h.subject || null,
+      action: actionFor(h),
+    })) : [],
+    trend_commentary: trendResult.commentary,
+  };
+ 
+  fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
+  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2), 'utf-8');
+  console.log(`완료: ${OUTPUT_PATH} 저장됨`);
+}
+ 
+// require()로 다른 스크립트(테스트 등)에서 함수만 가져다 쓸 때는 자동 실행되지 않도록,
+// 이 파일이 직접 실행된 경우에만 main()을 호출합니다.
+if (require.main === module) {
+  main().catch(err => {
+    console.error('오류:', err.message);
+    process.exit(1);
+  });
+}
+ 
+module.exports = {
+  parseCsv, normalizeCompanyName, buildDatasets, computeHighlights, ACTION_MAP, actionFor,
+  josa, computeMonthlySignals, monthlyCategorySums, monthlyWorktypeSums,
+  computeTrendWeeklySignals, weekMondayStr,
+  extractJsonArray, generateWebInformedActions,
+};
