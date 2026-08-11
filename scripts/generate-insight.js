@@ -49,6 +49,23 @@
  * 분리한 것입니다. 안전장치는 v6과 동일합니다 — 신호(사실관계)는 이미 계산된 것만 사용,
  * 검색 결과가 없으면 억지로 지어내지 않음, 실패 시 빈 배열로 조용히 건너뜀.
  *
+ * [v8 추가 — 2026-08-11] Joe 요청: "4A시스템·금영ENC·피엠씨·미래피앤씨·수퍼크랙실" 5개 주요
+ * 경쟁사에 대해서는, 그날의 하이라이트 상위 3건에 뽑혔는지와 무관하게 매일 최신 동향을 검색해
+ * 알려주는 기능을 추가했습니다. v7과 동일한 절차(회사명별 Tavily 검색 → 검색 결과를 일반 AI
+ * 호출에 참고자료로 전달해 요약 문장 작성)를 쓰되, "오늘의 브리핑 상위 3건" 필터링 없이 5개사
+ * 전원을 매일 고정으로 처리합니다. 결과는 competitor_watch_trends로 저장됩니다. 안전장치는
+ * v7과 동일 — 검색 결과가 없으면 지어내지 않고 "최근 특이 동향 확인 안 됨"으로 처리, 검색/AI
+ * 호출 실패 시 해당 항목(또는 전체)을 조용히 건너뜁니다.
+ * (같은 날 추가) Joe 요청("구체적인 솔루션 제공은 어렵나요")에 따라, 각 업체 동향 요약(summary)
+ * 뿐 아니라 그 동향에 대한 구체적인 대응 방안(action)도 함께 생성하도록 확장했습니다.
+ *
+ * [v9 정리 — 2026-08-11] Joe 요청("웹기반 대응 방안보다는 경쟁사 동향으로 수정해주시고 최신
+ * 동향 정보 알 수 있게 해주세요")에 따라 v7의 "웹 검색 기반 대응 방안"(highlight_actions_ai,
+ * 그날그날 바뀌는 하이라이트 상위 3건 기준)을 폐지하고, v8의 "경쟁사 동향"(competitor_watch_
+ * trends, 5개사 고정)으로 일원화했습니다. 또한 "최신" 정보를 더 잘 반영하도록 Tavily 검색을
+ * topic=news + 최근 1개월(time_range=month) 기준으로 우선 검색하고(결과 없으면 일반 검색으로
+ * 대체) 결과 수도 3→5건으로 늘렸습니다.
+ *
  * 필요 환경변수: AI_PROVIDER=claude 인 경우 ANTHROPIC_API_KEY,
  *              AI_PROVIDER=gemini 인 경우 GEMINI_API_KEY (둘 다 GitHub Repository Secret으로 등록)
  *              TAVILY_API_KEY — "웹 검색 기반 대응 방안"(v7) 기능에 필요. tavily.com에서
@@ -720,14 +737,16 @@ async function callAiProvider(prompt, maxTokens) {
 }
  
 // ---------------------------------------------------------------------------
-// 4' [v7] Tavily 검색 API 호출 — "웹 검색 기반 대응 방안" 기능 전용. 카드 등록 없이 월
-//    1,000건까지 무료(tavily.com)이며, 결과는 {title, url, content(요약)} 목록입니다.
-//    이 결과 자체를 화면에 보여주는 게 아니라, 아래 generateWebInformedActions()에서
-//    AI 프롬프트에 "참고자료"로 넘겨 대응 방안 문장을 쓰게 하는 재료로만 씁니다.
+// 4' [v7] Tavily 검색 API 호출 — 카드 등록 없이 월 1,000건까지 무료(tavily.com)이며,
+//    결과는 {title, url, content(요약)} 목록입니다. 이 결과 자체를 화면에 보여주는 게
+//    아니라, AI 프롬프트에 "참고자료"로 넘겨 요약·대응 방안 문장을 쓰게 하는 재료로 씁니다.
+//    [v9] opts.topic='news' + opts.timeRange를 지정하면 실제 뉴스성 최신 결과 위주로
+//    필터링됩니다(경쟁사 동향처럼 "최신" 정보가 중요한 용도에 사용).
 // ---------------------------------------------------------------------------
-async function callTavilySearch(query, maxResults) {
+async function callTavilySearch(query, maxResults, opts) {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error('TAVILY_API_KEY 환경변수가 설정되어 있지 않습니다.');
+  opts = opts || {};
  
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
@@ -737,6 +756,8 @@ async function callTavilySearch(query, maxResults) {
       query,
       search_depth: 'basic',
       max_results: maxResults || 3,
+      topic: opts.topic || 'general',
+      ...(opts.timeRange ? { time_range: opts.timeRange } : {}),
     }),
   });
   if (!res.ok) {
@@ -862,6 +883,93 @@ ${signalText}
 }
  
 // ---------------------------------------------------------------------------
+// 4d. [v8] 주요 경쟁사 5개사 고정 동향 — Joe 요청. 그날의 하이라이트(변동 신호) 상위 3건에
+//    뽑혔는지와 무관하게, 아래 5개 업체는 매일 고정으로 Tavily 검색 → 일반 AI 호출로 최신
+//    동향을 요약합니다. 절차·안전장치는 generateWebInformedActions()(v7)와 동일합니다.
+// ---------------------------------------------------------------------------
+const COMPETITOR_WATCHLIST = ['4A시스템', '금영ENC', '피엠씨', '미래피앤씨', '수퍼크랙실'];
+ 
+function buildCompetitorWatchQuery(name) {
+  return `${name} 건설 특허공법 최신 소식`;
+}
+ 
+async function generateCompetitorWatchTrends(companyNames) {
+  const list = companyNames && companyNames.length ? companyNames : COMPETITOR_WATCHLIST;
+  if (list.length === 0) return [];
+ 
+  const searchPerCompany = [];
+  for (const name of list) {
+    const query = buildCompetitorWatchQuery(name);
+    try {
+      // [v9] "최신 동향"이 핵심이므로 먼저 뉴스 카테고리 + 최근 1개월로 좁혀서 검색합니다.
+      let results = await callTavilySearch(query, 5, { topic: 'news', timeRange: 'month' });
+      // 5개사 모두가 매일 새 "뉴스"에 나오는 대기업은 아니라, 뉴스 검색이 비어 있으면
+      // 일반 웹 검색으로 한 번 더 시도합니다(결과 없음으로 카드가 비는 것을 줄이기 위함).
+      if (results.length === 0) {
+        results = await callTavilySearch(query, 5, { topic: 'general' });
+      }
+      searchPerCompany.push({ name, results });
+    } catch (e) {
+      console.warn(`  - ⚠ Tavily 검색 실패(${name}, 계속 진행): ${e.message}`);
+      searchPerCompany.push({ name, results: [] });
+    }
+  }
+ 
+  const companyText = searchPerCompany.map((item, i) => {
+    const searchBlock = item.results.length
+      ? item.results.map((r, ri) => `   [검색결과${ri + 1}] ${r.title} (${r.url})\n   ${r.content}`).join('\n')
+      : '   (검색 결과 없음)';
+    return `${i + 1}. ${item.name}\n   관련 웹 검색 결과:\n${searchBlock}`;
+  }).join('\n\n');
+ 
+  const prompt = `당신은 건설 특허공법(POUR) 시장의 경쟁사 동향을 분석해 실무진에게 구체적인 대응 방안을 제안하는 애널리스트입니다.
+아래는 주요 경쟁사 목록과, 각 업체명으로 검색한 최근 웹 검색 결과(제목·출처·요약)입니다.
+각 업체별로 (1) 검색 결과에 나타난 최신 소식(신규 특허, 수주, 사업 확장, 기술 인증 등)을 요약하고,
+(2) 그 소식에 비추어 우리(브릿지원/POUR) 실무진이 취하면 좋을 구체적인 대응 방안을 함께 제시하세요.
+ 
+[경쟁사 및 관련 검색 결과]
+${companyText}
+ 
+지시사항:
+- summary·action 모두 위에 제공된 검색 결과만 근거로 사용하세요 — 검색 결과에 없는 내용을 지어내지 마세요.
+- 해당 업체에 "(검색 결과 없음)"이라고 되어 있으면, summary에는 "최근 특이 동향이 검색되지 않았습니다."라고만 쓰고, action에는 "특이 조치 불필요, 지속 모니터링"처럼 일반적인 수준으로만 작성하세요(검색 결과 없이 구체적인 대응책을 지어내지 마세요).
+- action은 "점검 필요"·"확인 필요" 같은 막연한 말이 아니라, 검색 결과에 나온 구체적인 사실(어떤 공법·지역·수주 등)을 근거로 실무진이 바로 참고할 수 있는 수준으로 1~2문장으로 작성하세요.
+- 각 항목마다 실제로 참고한 검색 결과가 있으면 note에 요약해 남기세요(어느 검색결과 번호를 참고했는지 언급 가능). 없으면 "검색 결과 없음"이라고 쓰세요.
+- 존댓말을 사용하세요.
+- 아래 JSON 배열 형식으로만 답하세요. 다른 설명 문장은 붙이지 마세요.
+[
+  { "index": 1, "summary": "업체별 최신 동향 요약 (한국어, 존댓말, 1~2문장)", "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "note": "참고한 검색 결과 요약 또는 '검색 결과 없음'" }
+]`;
+ 
+  let text;
+  try {
+    text = await callAiProvider(prompt, 1536);
+  } catch (e) {
+    console.warn(`  - ⚠ 경쟁사 동향 생성 실패(건너뜀): ${e.message}`);
+    return [];
+  }
+ 
+  const parsed = extractJsonArray(text);
+  if (!Array.isArray(parsed)) {
+    console.warn('  - ⚠ 경쟁사 동향 응답 파싱 실패(건너뜀)');
+    return [];
+  }
+ 
+  return parsed.map(item => {
+    const idx = Number(item.index) - 1;
+    const entry = searchPerCompany[idx];
+    if (!entry || !item.summary) return null;
+    return {
+      company: entry.name,
+      summary: String(item.summary).trim(),
+      action: item.action ? String(item.action).trim() : null,
+      note: item.note ? String(item.note).trim() : null,
+      sources: entry.results.map(r => ({ title: r.title, url: r.url })),
+    };
+  }).filter(Boolean);
+}
+ 
+// ---------------------------------------------------------------------------
 // 4a. 오늘의 브리핑용 코멘트 — 이미 계산된 신호만 근거로 생성 (추측/창작 금지 명시)
 // ---------------------------------------------------------------------------
 async function callClaude(ctx) {
@@ -948,9 +1056,13 @@ async function main() {
   console.log('[4/9] Claude API로 오늘의 브리핑 코멘트 생성 중...');
   const result = await callClaude(ctx);
  
-  console.log('[5/9] 웹 검색 기반 권장 조치 보강 생성 중 (오늘의 브리핑 상위 신호)...');
-  const webActions = await generateWebInformedActions(ctx.highlights);
-  console.log(webActions.length ? `  - ${webActions.length}건 생성됨` : '  - 생성 안 됨(신호 없음 또는 실패 — 규칙 기반 권장 조치만 표시됨)');
+  // [v9] "웹 검색 기반 대응 방안"(highlight_actions_ai, v7)은 Joe 요청으로 폐지하고
+  // "경쟁사 동향"(competitor_watch_trends, v8)으로 대체했습니다 — 그날그날 바뀌는 상위
+  // 3개 하이라이트보다, 지정된 5개 경쟁사의 실제 최신 동향이 더 유용하다는 피드백입니다.
+  // (generateWebInformedActions() 함수 자체는 재사용 가능성을 위해 남겨두되 더 이상 호출하지 않습니다.)
+  console.log('[5/9] 주요 경쟁사 5개사 최신 동향(뉴스) 생성 중...');
+  const competitorWatch = await generateCompetitorWatchTrends(COMPETITOR_WATCHLIST);
+  console.log(competitorWatch.length ? `  - ${competitorWatch.length}건 생성됨` : '  - 생성 안 됨(검색/AI 호출 실패)');
  
   console.log('[6/9] 월간(전월 대비) 변동 신호 계산 중 — 구성 · 순위 / 원자료 표 탭...');
   const mctx = computeMonthlySignals(ds);
@@ -1012,9 +1124,12 @@ async function main() {
     })),
     commentary: result.commentary,
  
-    // --- [v7] 오늘의 브리핑 상위 신호에 대한 웹 검색(Tavily) 기반 "권장 조치" 보강 (실패/신호없음 시 빈 배열) ---
-    highlight_actions_ai: webActions,
-    web_action_model: webActions.length ? MODEL : null,
+    // --- [v8, v9에서 강화] 주요 경쟁사 5개사(4A시스템·금영ENC·피엠씨·미래피앤씨·수퍼크랙실)의
+    //     최신 동향(뉴스) — 그날의 하이라이트 상위 3건 여부와 무관하게 매일 5개사 전원 대상,
+    //     Tavily topic=news + 최근 1개월 필터로 실제 최신 뉴스 위주 검색 (실패/미검색 시 빈 배열).
+    //     (v7의 highlight_actions_ai/web_action_model 필드는 Joe 요청으로 v9에서 폐지되었습니다.)
+    competitor_watch_trends: competitorWatch,
+    competitor_watch_model: competitorWatch.length ? MODEL : null,
  
     // --- 구성 · 순위 / 원자료 표 탭의 "종합" 세션용 월간(전월 대비) AI 코멘트 ---
     monthly_period: mctx.hasEnoughData ? {
@@ -1069,4 +1184,5 @@ module.exports = {
   josa, computeMonthlySignals, monthlyCategorySums, monthlyWorktypeSums,
   computeTrendWeeklySignals, weekMondayStr,
   extractJsonArray, generateWebInformedActions, callTavilySearch, buildSearchQueryFor,
+  COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends,
 };
