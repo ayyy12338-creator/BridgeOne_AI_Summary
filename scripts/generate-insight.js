@@ -66,6 +66,13 @@
  * topic=news + 최근 1개월(time_range=month) 기준으로 우선 검색하고(결과 없으면 일반 검색으로
  * 대체) 결과 수도 3→5건으로 늘렸습니다.
  *
+ * [v10 수정 — 2026-08-11] Joe 피드백("검색 출처가 좀 이상한데요") — 회사명만으로 검색하면
+ * 인스타그램·나무위키 등 업체와 무관한 결과가 자주 섞였습니다. (1) 신뢰도 낮은/무관한
+ * 도메인(인스타그램·나무위키·유튜브·SNS 등)을 검색 단계에서 기본 제외하고, (2) AI에게
+ * "검색 결과 각각이 실제로 이 업체에 대한 내용이 맞는지" 먼저 판단하게 한 뒤, 실제로
+ * 참고한 결과의 번호(used_indices)만 요청 — 원본 검색 결과 전체가 아니라 AI가 관련 있다고
+ * 판단해 실제로 인용한 것만 화면의 "출처"에 표시되도록 바꿨습니다.
+ *
  * 필요 환경변수: AI_PROVIDER=claude 인 경우 ANTHROPIC_API_KEY,
  *              AI_PROVIDER=gemini 인 경우 GEMINI_API_KEY (둘 다 GitHub Repository Secret으로 등록)
  *              TAVILY_API_KEY — "웹 검색 기반 대응 방안"(v7) 기능에 필요. tavily.com에서
@@ -743,6 +750,10 @@ async function callAiProvider(prompt, maxTokens) {
 //    [v9] opts.topic='news' + opts.timeRange를 지정하면 실제 뉴스성 최신 결과 위주로
 //    필터링됩니다(경쟁사 동향처럼 "최신" 정보가 중요한 용도에 사용).
 // ---------------------------------------------------------------------------
+// [v10] 회사명만으로 검색하면 인스타그램·나무위키·유튜브 등 업체와 무관한 콘텐츠가 자주
+// 섞여 들어옵니다(Joe 피드백: "검색 출처가 좀 이상한데요"). 기본적으로 제외할 도메인.
+const DEFAULT_EXCLUDE_DOMAINS = ['instagram.com', 'namu.wiki', 'youtube.com', 'facebook.com', 'twitter.com', 'x.com', 'tiktok.com', 'pinterest.com'];
+ 
 async function callTavilySearch(query, maxResults, opts) {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error('TAVILY_API_KEY 환경변수가 설정되어 있지 않습니다.');
@@ -758,6 +769,9 @@ async function callTavilySearch(query, maxResults, opts) {
       max_results: maxResults || 3,
       topic: opts.topic || 'general',
       ...(opts.timeRange ? { time_range: opts.timeRange } : {}),
+      // [v10] 회사명만으로는 검색이 인스타그램·나무위키·무관 뉴스 등으로 새기 쉬워, 신뢰도
+      // 낮은/무관한 도메인을 기본적으로 제외합니다(호출부에서 opts.excludeDomains로 추가 가능).
+      exclude_domains: (opts.excludeDomains || DEFAULT_EXCLUDE_DOMAINS),
     }),
   });
   if (!res.ok) {
@@ -924,21 +938,29 @@ async function generateCompetitorWatchTrends(companyNames) {
  
   const prompt = `당신은 건설 특허공법(POUR) 시장의 경쟁사 동향을 분석해 실무진에게 구체적인 대응 방안을 제안하는 애널리스트입니다.
 아래는 주요 경쟁사 목록과, 각 업체명으로 검색한 최근 웹 검색 결과(제목·출처·요약)입니다.
-각 업체별로 (1) 검색 결과에 나타난 최신 소식(신규 특허, 수주, 사업 확장, 기술 인증 등)을 요약하고,
+ 
+⚠ 중요: 회사명만으로 검색했기 때문에, 검색 결과 중 상당수가 해당 업체와 실제로 무관한 내용일
+수 있습니다(동명이인·동명업체, 완전히 다른 주제의 뉴스나 블로그 글 등). 각 업체별로 먼저 검색
+결과 하나하나가 "실제로 이 건설 경쟁사에 대한 내용이 맞는지" 판단한 뒤, 명백히 무관한 결과는
+완전히 무시하고 절대로 summary·action·sources에 반영하지 마세요.
+ 
+각 업체별로:
+(1) 실제로 관련 있는 검색 결과에 나타난 최신 소식(신규 특허, 수주, 사업 확장, 기술 인증 등)만 요약하고,
 (2) 그 소식에 비추어 우리(브릿지원/POUR) 실무진이 취하면 좋을 구체적인 대응 방안을 함께 제시하세요.
  
 [경쟁사 및 관련 검색 결과]
 ${companyText}
  
 지시사항:
-- summary·action 모두 위에 제공된 검색 결과만 근거로 사용하세요 — 검색 결과에 없는 내용을 지어내지 마세요.
-- 해당 업체에 "(검색 결과 없음)"이라고 되어 있으면, summary에는 "최근 특이 동향이 검색되지 않았습니다."라고만 쓰고, action에는 "특이 조치 불필요, 지속 모니터링"처럼 일반적인 수준으로만 작성하세요(검색 결과 없이 구체적인 대응책을 지어내지 마세요).
-- action은 "점검 필요"·"확인 필요" 같은 막연한 말이 아니라, 검색 결과에 나온 구체적인 사실(어떤 공법·지역·수주 등)을 근거로 실무진이 바로 참고할 수 있는 수준으로 1~2문장으로 작성하세요.
-- 각 항목마다 실제로 참고한 검색 결과가 있으면 note에 요약해 남기세요(어느 검색결과 번호를 참고했는지 언급 가능). 없으면 "검색 결과 없음"이라고 쓰세요.
+- summary·action 모두 "실제로 관련 있다고 판단한" 검색 결과만 근거로 사용하세요 — 무관한 결과나, 검색 결과에 없는 내용을 지어내지 마세요.
+- 관련 있는 검색 결과가 하나도 없으면(모두 무관하거나 "검색 결과 없음"이면), summary에는 "최근 특이 동향이 검색되지 않았습니다."라고만 쓰고, action에는 "특이 조치 불필요, 지속 모니터링"처럼 일반적인 수준으로만 작성하세요. 이때 used_indices는 빈 배열 []로 남기세요.
+- action은 "점검 필요"·"확인 필요" 같은 막연한 말이 아니라, 관련 있는 검색 결과에 나온 구체적인 사실(어떤 공법·지역·수주 등)을 근거로 실무진이 바로 참고할 수 있는 수준으로 1~2문장으로 작성하세요.
+- used_indices에는 실제로 summary·action 작성에 사용한(=관련 있다고 판단한) 검색결과 번호만 배열로 적으세요(예: [1, 3]). 무관하다고 판단해 사용하지 않은 번호는 절대 포함하지 마세요. 하나도 없으면 [].
+- note에는 used_indices에 해당하는 내용을 간단히 요약하거나, 없으면 "관련 검색 결과 없음"이라고 쓰세요.
 - 존댓말을 사용하세요.
 - 아래 JSON 배열 형식으로만 답하세요. 다른 설명 문장은 붙이지 마세요.
 [
-  { "index": 1, "summary": "업체별 최신 동향 요약 (한국어, 존댓말, 1~2문장)", "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "note": "참고한 검색 결과 요약 또는 '검색 결과 없음'" }
+  { "index": 1, "summary": "업체별 최신 동향 요약 (한국어, 존댓말, 1~2문장)", "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "used_indices": [1, 3], "note": "참고한 검색 결과 요약 또는 '관련 검색 결과 없음'" }
 ]`;
  
   let text;
@@ -959,12 +981,18 @@ ${companyText}
     const idx = Number(item.index) - 1;
     const entry = searchPerCompany[idx];
     if (!entry || !item.summary) return null;
+    // [v10] AI가 실제로 관련 있다고 판단해 used_indices에 적은 검색결과만 출처로 남깁니다
+    // (Joe 피드백: 관련 없는 인스타그램·나무위키 등이 출처로 뜨는 문제 — 원본 검색 결과
+    // 전체가 아니라 AI가 실제로 인용한 것만 sources에 포함시켜 해결).
+    const usedIdx = Array.isArray(item.used_indices)
+      ? item.used_indices.map(n => Number(n) - 1).filter(n => Number.isInteger(n) && n >= 0 && n < entry.results.length)
+      : [];
     return {
       company: entry.name,
       summary: String(item.summary).trim(),
       action: item.action ? String(item.action).trim() : null,
       note: item.note ? String(item.note).trim() : null,
-      sources: entry.results.map(r => ({ title: r.title, url: r.url })),
+      sources: usedIdx.map(i => ({ title: entry.results[i].title, url: entry.results[i].url })),
     };
   }).filter(Boolean);
 }
@@ -1186,3 +1214,4 @@ module.exports = {
   extractJsonArray, generateWebInformedActions, callTavilySearch, buildSearchQueryFor,
   COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends,
 };
+ 
