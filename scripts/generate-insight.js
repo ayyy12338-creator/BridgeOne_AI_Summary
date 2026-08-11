@@ -83,6 +83,16 @@
  * 행의 업체명은 실제 낙찰 경쟁사가 아니라 우리 협력사명이라, "어느 경쟁사가 이겼는지"까지는
  * 이 데이터만으로 알 수 없습니다(추후 필요 시 POUR 공고문 데이터와 별도 교차 매칭 필요).
  *
+ * [v12 확장 — 2026-08-11] Joe 피드백("연결할 수 있는 결과 및 인사이트 도출이 안되는데
+ * 어떻게 안될까요") — v11의 퍼널 총건수만으로는 실무진이 "어디부터 손봐야 하는지" 알기
+ * 어렵다는 지적에 따라 두 가지를 추가했습니다. (1) 케이스별 주소·공종명에서 광역 지역(시/도)과
+ * 대표 공종을 뽑아, 지역·공종 단위로 이탈률(문의/컨설팅에서 멈춘 비율)과 POUR 낙찰률을 다시
+ * 집계(by_region/by_worktype, 표본 15건 미만은 제외)했습니다. (2) 그 수치만 근거로 "어디부터
+ * 확인해볼 만한지" AI 코멘트(journey_funnel_commentary)를 생성했습니다 — 다른 코멘트 기능과
+ * 동일하게 "왜" 이탈했는지는 이 데이터만으로 알 수 없다는 점을 프롬프트에 명시해 원인을
+ * 지어내지 않도록 했습니다. (브랜드별 분류는 "여정_최종" 시트에 브랜드 컬럼이 없어 이번에는
+ * 제외했습니다 — 필요하시면 "기술자문문의" 시트와 별도 매칭이 필요합니다.)
+ *
  * 필요 환경변수: AI_PROVIDER=claude 인 경우 ANTHROPIC_API_KEY,
  *              AI_PROVIDER=gemini 인 경우 GEMINI_API_KEY (둘 다 GitHub Repository Secret으로 등록)
  *              TAVILY_API_KEY — "웹 검색 기반 대응 방안"(v7) 기능에 필요. tavily.com에서
@@ -1084,9 +1094,11 @@ ${signalText}
 }
 
 // ---------------------------------------------------------------------------
-// 4c. [v11 추가] 고객여정 퍼널 — B2B사업운영팀 "여정_최종" 시트를 문의(L2)~낙찰(L5)
-//     단계로 집계합니다. 이 함수는 숫자를 "계산"만 할 뿐, AI 호출이나 추측이 전혀 없습니다
-//     (단계·처리상태 컬럼 값을 그대로 규칙 기반으로 분류).
+// 4c. [v11 추가, v12에서 세부 차원별 분류 + AI 코멘트 확장] 고객여정 퍼널 — B2B사업운영팀
+//     "여정_최종" 시트를 문의(L2)~낙찰(L5) 단계로 집계합니다. 집계 자체는 숫자를 "계산"만
+//     할 뿐, AI 호출이나 추측이 전혀 없습니다(단계·처리상태 컬럼 값을 그대로 규칙 기반으로
+//     분류). AI는 그 계산 결과를 문장으로 요약하는 별도 단계(callClaudeForJourneyFunnel)에서만
+//     쓰입니다 — 다른 카드들과 동일한 안전장치입니다.
 //
 //     분류 기준(현장+공종 단위 "케이스"별로 가장 진행된 상태 1개만 선택):
 //       1. l2_only            — 문의(L2)에서 끝남
@@ -1100,6 +1112,17 @@ ${signalText}
 //       없으므로(외부 POUR 공고문 데이터와 별도 교차 매칭 필요) 여기서는 "타사로
 //       넘어간 건수"까지만 집계합니다.
 //     ※ 업체명에 "테스트"가 포함된 행(더미 데이터)은 집계에서 제외합니다.
+//
+//     [v12 추가 — 2026-08-11] Joe 요청("연결할 수 있는 결과 및 인사이트 도출이 안되는데
+//     어떻게 안될까요") — 전체 총건수만으로는 "어디부터 손봐야 하는지"가 안 보인다는
+//     피드백에 따라 두 가지를 추가했습니다.
+//     (1) 지역별/공종별 세부 분류 — 케이스별 주소에서 광역 지역(시/도)을, 공종명에서 대표
+//         공종(첫 '+' 앞부분)을 뽑아 이탈률(l2_only+l3_pending 비중)·POUR 낙찰률을 지역·공종
+//         단위로 재집계합니다(표본 15건 미만인 지역/공종은 우연에 가까워 노출하지 않음).
+//     (2) journey_funnel_commentary — 위 (1)에서 계산된 수치(문장이 아니라 숫자)만 근거로
+//         AI에게 "어디부터 확인해볼 만한지" 코멘트를 요청합니다. 다른 코멘트 기능과 동일하게
+//         "왜" 이탈했는지는 이 데이터만으로 알 수 없다는 점을 프롬프트에 명시해, AI가 원인을
+//         지어내지 않도록 합니다.
 // ---------------------------------------------------------------------------
 const JOURNEY_CATEGORIES = [
   { key: 'l2_only', label: '문의(L2)에서 끝남', priority: 1 },
@@ -1109,6 +1132,8 @@ const JOURNEY_CATEGORIES = [
   { key: 'lost_to_competitor', label: '타사(타공법)로 낙찰', priority: 5 },
   { key: 'won', label: 'POUR 낙찰 성공', priority: 6 },
 ];
+const JOURNEY_DROPOUT_KEYS = new Set(['l2_only', 'l3_pending']);
+const JOURNEY_DIMENSION_MIN_SAMPLE = 15; // 표본이 이보다 적은 지역/공종은 노출하지 않음(우연 방지)
 
 function classifyJourneyRow(stage, status) {
   if (status === '타공법낙찰') return 'lost_to_competitor';
@@ -1120,15 +1145,51 @@ function classifyJourneyRow(stage, status) {
   return null;
 }
 
+// 주소 첫 토큰(시/도)을 광역 단위로 정규화 — "서울특별시"/"서울" 모두 "서울"로 묶는 식.
+const JOURNEY_REGION_MAP = {
+  '서울특별시': '서울', '서울': '서울',
+  '부산광역시': '부산', '대구광역시': '대구', '인천광역시': '인천',
+  '광주광역시': '광주', '대전광역시': '대전', '울산광역시': '울산',
+  '세종특별자치시': '세종', '세종시': '세종',
+  '경기도': '경기', '경기': '경기',
+  '강원특별자치도': '강원', '강원도': '강원',
+  '충청북도': '충북', '충청남도': '충남',
+  '전북특별자치도': '전북', '전라북도': '전북', '전라남도': '전남',
+  '경상북도': '경북', '경상남도': '경남',
+  '제주특별자치도': '제주', '제주도': '제주', '제주': '제주',
+};
+// [v12 수정] 일부 행의 '주소' 값이 원본 데이터 자체에 이상이 있어(예: 지역명이 중복
+// 결합되어 "전남광주통합특별시 북구 전남광주통합특별시 북구 …"처럼 실제 존재하지 않는
+// 지역명이 만들어짐) 첫 토큰을 그대로 지역명으로 쓰면 안 됩니다. 17개 광역 지역
+// 화이트리스트에 없는 값은 전부 "기타/확인필요"로 묶어, 잘못된 지역명이 그대로 카드에
+// 노출되지 않도록 합니다.
+const JOURNEY_VALID_REGIONS = new Set(Object.values(JOURNEY_REGION_MAP));
+function normalizeJourneyRegion(addr) {
+  const first = (addr || '').trim().split(/\s+/)[0] || '';
+  const mapped = JOURNEY_REGION_MAP[first] || first;
+  return JOURNEY_VALID_REGIONS.has(mapped) ? mapped : '기타/확인필요';
+}
+// 공종명이 "균열보수및재도장+에폭시"처럼 '+'로 여러 개 묶인 경우 대표(첫) 공종만 사용.
+function primaryJourneyWorktype(work) {
+  const first = (work || '').split('+')[0].trim();
+  return first || '기타';
+}
+
 function computeCustomerJourneyFunnel(journeyRows) {
   if (!journeyRows || journeyRows.length < 2) return null;
 
   const header = journeyRows[0];
   const idx = name => header.indexOf(name);
-  const iApt = idx('아파트ID'), iWork = idx('공종명'), iStage = idx('단계'),
-        iStatus = idx('처리상태'), iCompany = idx('업체명');
+  // [v12 수정] 케이스 키를 '아파트ID' 대신 '아파트명+주소'(텍스트)로 바꿨습니다. 검증 중
+  // 발견: '아파트ID' 값이 25자리 안팎의 매우 큰 숫자인데, 구글 시트/엑셀 내부적으로
+  // 숫자(IEEE754 double)로 저장되어 15~17자리를 넘는 자릿수는 정밀도가 소실됩니다. 그
+  // 결과 서로 다른 아파트 954개 중 329개(전체 행의 약 60%)가 실제로는 다른 단지인데도
+  // 같은 아파트ID로 겹쳐 집계되는 것을 확인했습니다. 아파트명+주소는 텍스트라 이 문제가
+  // 없어 훨씬 안정적입니다.
+  const iAptName = idx('아파트명'), iWork = idx('공종명'), iStage = idx('단계'),
+        iStatus = idx('처리상태'), iCompany = idx('업체명'), iAddr = idx('주소');
 
-  if ([iApt, iWork, iStage, iStatus, iCompany].some(i => i < 0)) {
+  if ([iAptName, iWork, iStage, iStatus, iCompany, iAddr].some(i => i < 0)) {
     console.warn('  - ⚠ 고객여정 시트에서 예상 컬럼을 찾지 못해 건너뜁니다(시트 구조 변경 가능성).');
     return null;
   }
@@ -1136,7 +1197,7 @@ function computeCustomerJourneyFunnel(journeyRows) {
   const priorityMap = {};
   JOURNEY_CATEGORIES.forEach(c => { priorityMap[c.key] = c.priority; });
 
-  const best = new Map(); // case_key(아파트ID+공종명) -> { key, priority }
+  const best = new Map(); // case_key(아파트명+주소+공종명, 텍스트) -> { key, priority, region, worktype }
   let testExcluded = 0;
   let skippedNoCategory = 0;
 
@@ -1144,20 +1205,26 @@ function computeCustomerJourneyFunnel(journeyRows) {
     if (!r || r.length < 2) return;
     const company = (r[iCompany] || '').trim();
     if (company.includes('테스트')) { testExcluded++; return; }
-    const apt = (r[iApt] || '').trim();
+    const aptName = (r[iAptName] || '').trim();
+    const addr = (r[iAddr] || '').trim();
     const work = (r[iWork] || '').trim();
-    if (!apt) return;
+    if (!aptName || !addr) return;
 
     const stage = (r[iStage] || '').trim();
     const status = (r[iStatus] || '').trim();
     const catKey = classifyJourneyRow(stage, status);
     if (!catKey) { skippedNoCategory++; return; }
 
-    const caseKey = `${apt}__${work}`;
+    const caseKey = `${aptName}__${addr}__${work}`;
     const p = priorityMap[catKey];
     const existing = best.get(caseKey);
     if (!existing || p > existing.priority) {
-      best.set(caseKey, { key: catKey, priority: p });
+      best.set(caseKey, {
+        key: catKey,
+        priority: p,
+        region: normalizeJourneyRegion(r[iAddr]),
+        worktype: primaryJourneyWorktype(work),
+      });
     }
   });
 
@@ -1173,13 +1240,110 @@ function computeCustomerJourneyFunnel(journeyRows) {
     pct: totalCases ? Number(((counts[c.key] || 0) / totalCases * 100).toFixed(1)) : 0,
   }));
 
+  // [v12] 지역/공종 단위 세부 분류 — 이탈률(dropout_pct)·POUR 낙찰률(won_pct)을 함께 계산.
+  function buildDimensionBreakdown(dimName) {
+    const buckets = new Map();
+    best.forEach(v => {
+      const label = v[dimName];
+      if (!buckets.has(label)) buckets.set(label, { total: 0, dropout: 0, won: 0, lostToCompetitor: 0 });
+      const b = buckets.get(label);
+      b.total++;
+      if (JOURNEY_DROPOUT_KEYS.has(v.key)) b.dropout++;
+      if (v.key === 'won') b.won++;
+      if (v.key === 'lost_to_competitor') b.lostToCompetitor++;
+    });
+    return Array.from(buckets.entries())
+      .map(([label, b]) => ({
+        label,
+        total: b.total,
+        dropout: b.dropout,
+        dropout_pct: b.total ? Number((b.dropout / b.total * 100).toFixed(1)) : 0,
+        won: b.won,
+        won_pct: b.total ? Number((b.won / b.total * 100).toFixed(1)) : 0,
+        lost_to_competitor: b.lostToCompetitor,
+      }))
+      .filter(x => x.total >= JOURNEY_DIMENSION_MIN_SAMPLE)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+  }
+
   return {
     total_cases: totalCases,
     total_source_rows: journeyRows.length - 1,
     excluded_test_rows: testExcluded,
     skipped_rows_no_category: skippedNoCategory,
     categories,
+    by_region: buildDimensionBreakdown('region'),
+    by_worktype: buildDimensionBreakdown('worktype'),
+    dimension_min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
   };
+}
+
+// [v12] 위에서 계산된 숫자만으로 AI에게 넘길 "이미 계산된 신호" 문장 목록을 만듭니다.
+// (이 함수 자체는 문자열 포맷팅만 할 뿐 AI를 호출하지 않습니다.)
+function buildJourneyFunnelHighlightLines(jf) {
+  if (!jf) return [];
+  const byKey = {};
+  jf.categories.forEach(c => { byKey[c.key] = c; });
+  const lines = [];
+  lines.push(`전체 ${jf.total_cases}건 중 문의(L2)에서 끝난 건 ${byKey.l2_only.count}건(${byKey.l2_only.pct}%), 컨설팅/PT(L3)까지 진행했으나 이후 상태 불명인 건 ${byKey.l3_pending.count}건(${byKey.l3_pending.pct}%)입니다.`);
+  lines.push(`공고(L4) 진행중 ${byKey.l4_pending.count}건, 유찰/공고취소로 수주 무산 ${byKey.lost_bid_failed.count}건, 타사(타공법)로 낙찰 ${byKey.lost_to_competitor.count}건, POUR 낙찰 성공 ${byKey.won.count}건(${byKey.won.pct}%)입니다.`);
+
+  if (jf.by_region && jf.by_region.length) {
+    // [v12 수정] "기타/확인필요"는 실제 지역이 아니라 주소 데이터 이상으로 판별 불가한
+    // 케이스들이 모인 버킷이라, "이탈률 1위 지역"처럼 지역 성과 비교에는 절대 포함하지
+    // 않습니다(포함하면 데이터 오류를 "그 지역의 특징"처럼 오인시킬 수 있음).
+    const realRegions = jf.by_region.filter(r => r.label !== '기타/확인필요');
+    if (realRegions.length) {
+      const byDropout = [...realRegions].sort((a, b) => b.dropout_pct - a.dropout_pct)[0];
+      lines.push(`지역별(표본 ${jf.dimension_min_sample}건 이상, "기타/확인필요" 제외)로 보면 ${byDropout.label} 지역의 이탈률(문의·컨설팅에서 멈춘 비율)이 ${byDropout.dropout_pct}%(${byDropout.total}건 중 ${byDropout.dropout}건)로 가장 높습니다.`);
+      const byVolume = [...realRegions].sort((a, b) => b.total - a.total)[0];
+      if (byVolume.label !== byDropout.label) {
+        lines.push(`케이스 수가 가장 많은 지역은 ${byVolume.label}로 ${byVolume.total}건이며, 이 중 이탈률은 ${byVolume.dropout_pct}%, POUR 낙찰률은 ${byVolume.won_pct}%입니다.`);
+      }
+    }
+    const unknownRegion = jf.by_region.find(r => r.label === '기타/확인필요');
+    if (unknownRegion) {
+      lines.push(`※ 주소 데이터 자체에 이상이 있어(지역명이 중복 결합되는 등) 지역을 정확히 판별할 수 없는 케이스가 ${unknownRegion.total}건 있습니다 — 원본 시트의 주소 필드 오류로 보이며 실제 지역 특성과는 무관합니다.`);
+    }
+  }
+  if (jf.by_worktype && jf.by_worktype.length) {
+    // [v12] 검증 중 발견: '공종명' 표기가 문의(L2·L3) 단계와 공고·낙찰(L4·L5) 단계에서
+    // 서로 다른 용어를 쓰는 사례가 있습니다(예: "슁글"은 L2·L3에만, "싱글"은 L3·L4·L5에만
+    // 등장 / "균열보수및재도장"은 L2·L3에만, "재도장"은 L4·L5에만 등장). 즉 같은 작업이
+    // 단계에 따라 다른 이름으로 기록됐을 가능성이 있어, 공종별 이탈률·낙찰률 차이가 실제
+    // 공종 성과 차이인지 표기 차이인지 구분할 수 없습니다. 그래서 "어느 공종이 낫다/못하다"
+    // 식 결론은 만들지 않고, 이 사실 자체만 신호로 남깁니다(AI에게도 결론 내리지 말라고
+    // 프롬프트에 명시).
+    lines.push(`※ '공종명' 표기가 문의·컨설팅(L2·L3) 단계와 공고·낙찰(L4·L5) 단계에서 서로 다른 용어를 쓰는 사례가 확인되었습니다(예: "슁글"은 초기 단계에만, "싱글"은 후기 단계에만 등장 / "균열보수및재도장"은 초기 단계에만, "재도장"은 후기 단계에만 등장). 그래서 공종별 이탈률·낙찰률 수치는 실제 공종 간 성과 차이인지 단계별 표기 차이인지 이 데이터만으로 구분할 수 없어, 공종별로는 결론을 내리지 않습니다.`);
+  }
+  return lines;
+}
+
+// [v12] callClaudeForSignals()는 "전월 대비" 같은 비교 문구를 전제로 하는 프롬프트라, 스냅샷
+// 성격의 퍼널 집계에는 맞지 않아 별도 함수로 둡니다. 안전장치(신호만 근거로 사용, 추측 금지,
+// 신호 0건이면 API 호출 생략)는 동일합니다.
+async function callClaudeForJourneyFunnel(lines) {
+  if (!lines || lines.length === 0) {
+    return { commentary: null, model: null };
+  }
+  const signalText = lines.map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const prompt = `당신은 건설 특허공법(POUR) 영업의 고객여정(문의→컨설팅→공고→낙찰) 퍼널 데이터를 분석해, 어디서 이탈이 발생하고 실무진이 우선 어디부터 확인해봐야 하는지 보고하는 애널리스트입니다.
+아래는 이미 규칙 기반으로 계산된 고객여정 퍼널 집계 결과입니다.
+
+[집계 결과]
+${signalText}
+
+지시사항:
+- 위 집계 결과에 있는 수치만 근거로 사용하세요. 목록에 없는 원인이나 배경을 추측해서 만들어내지 마세요.
+- 이탈(문의·컨설팅에서 멈추는 것) 비중이 큰 지역을 짚어주고, 실무진이 우선적으로 들여다볼 만한 지점을 제안하세요.
+- 다만 "왜" 이탈이 발생했는지는 이 데이터만으로 알 수 없으므로 원인을 단정하지 말고 "확인 필요"로 표현하세요.
+- 집계 결과에 "※"로 시작하는 데이터 품질 관련 안내(주소 판별 불가, 공종명 표기 불일치 등)가 있다면, 그 내용은 있는 그대로 전달하되 거기서 "어느 지역/공종이 더 낫다"는 식의 결론을 만들어내지 마세요 — 특히 공종별 수치는 표기 불일치 때문에 신뢰할 수 없다는 점이 명시된 경우, 공종에 대해서는 어떤 순위나 결론도 내리지 마세요.
+- 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 문장 단위로 끊어 한국어로 3~5문장 이내로 작성하세요.
+- 존댓말을 사용하세요.`;
+
+  const commentary = await callAiProvider(prompt, 768);
+  return { commentary, model: MODEL };
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,6 +1379,7 @@ async function main() {
   // 대시보드는 이 카드만 조용히 숨깁니다.
   console.log('[고객여정] "여정_최종" 시트에서 L2~L5 퍼널 집계 중...');
   let journeyFunnel = null;
+  let journeyCommentaryResult = { commentary: null, model: null };
   try {
     const journeyCsv = await fetchCsv(JOURNEY_GID, JOURNEY_SHEET_ID);
     const journeyRows = parseCsv(journeyCsv);
@@ -1222,8 +1387,14 @@ async function main() {
     console.log(journeyFunnel
       ? `  - 케이스 ${journeyFunnel.total_cases}건 집계됨(원본 ${journeyFunnel.total_source_rows}행, 테스트데이터 ${journeyFunnel.excluded_test_rows}행 제외)`
       : '  - 집계 실패(시트 구조 확인 필요) — 건너뜀');
+    if (journeyFunnel) {
+      console.log('  - AI 코멘트(지역·공종별 이탈 패턴) 생성 중...');
+      const jfLines = buildJourneyFunnelHighlightLines(journeyFunnel);
+      journeyCommentaryResult = await callClaudeForJourneyFunnel(jfLines);
+      console.log(journeyCommentaryResult.commentary ? '  - 코멘트 생성됨' : '  - 코멘트 생성 안 됨(API 호출 실패)');
+    }
   } catch (e) {
-    console.warn(`  - ⚠ 고객여정 시트 접근 실패(건너뜀): ${e.message}`);
+    console.warn(`  - ⚠ 고객여정 시트 접근/분석 실패(건너뜀): ${e.message}`);
   }
 
   console.log('[6/9] 월간(전월 대비) 변동 신호 계산 중 — 구성 · 순위 / 원자료 표 탭...');
@@ -1293,10 +1464,15 @@ async function main() {
     competitor_watch_trends: competitorWatch,
     competitor_watch_model: competitorWatch.length ? MODEL : null,
 
-    // --- [v11 추가] 고객여정 퍼널 — "여정_최종" 시트(B2B사업운영팀 관리) 기준, 문의(L2)부터
-    //     낙찰(L5)까지 현장+공종 단위 케이스를 6개 유형으로 분류한 집계입니다. AI가 개입하지
-    //     않는 순수 규칙 기반 집계이며, 시트 접근 실패 시 null(대시보드는 카드를 숨김)입니다.
+    // --- [v11 추가, v12에서 지역·공종별 세부 분류 추가] 고객여정 퍼널 — "여정_최종" 시트
+    //     (B2B사업운영팀 관리) 기준, 문의(L2)부터 낙찰(L5)까지 현장+공종 단위 케이스를 6개
+    //     유형으로 분류한 집계(by_region/by_worktype 포함)입니다. AI가 개입하지 않는 순수
+    //     규칙 기반 집계이며, 시트 접근 실패 시 null(대시보드는 카드를 숨김)입니다.
     customer_journey_funnel: journeyFunnel,
+    // --- [v12 추가] 위 집계 수치만 근거로 생성한 AI 코멘트(어디서 이탈이 큰지, 어디부터
+    //     확인해볼 만한지) — 신호가 없으면(journeyFunnel null) API 호출 자체를 생략합니다.
+    journey_funnel_commentary: journeyCommentaryResult.commentary,
+    journey_funnel_model: journeyCommentaryResult.model,
 
     // --- 구성 · 순위 / 원자료 표 탭의 "종합" 세션용 월간(전월 대비) AI 코멘트 ---
     monthly_period: mctx.hasEnoughData ? {
@@ -1353,4 +1529,6 @@ module.exports = {
   extractJsonArray, generateWebInformedActions, callTavilySearch, buildSearchQueryFor,
   COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends,
   JOURNEY_CATEGORIES, classifyJourneyRow, computeCustomerJourneyFunnel,
+  normalizeJourneyRegion, primaryJourneyWorktype, buildJourneyFunnelHighlightLines,
+  callClaudeForJourneyFunnel,
 };
