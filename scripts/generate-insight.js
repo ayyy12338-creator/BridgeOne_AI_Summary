@@ -32,29 +32,32 @@
  *
  * [v6 확장 — 2026-08-10] "오늘의 브리핑" 탭의 규칙 기반 "권장 조치"(ACTION_MAP)는 대시보드가
  * 열릴 때 즉시·무료로 계산되는 정적 문구라 "점검 필요"처럼 막연합니다. 이를 보강하기 위해,
- * 오늘의 브리핑 상위 신호(최대 3건, 비용 통제용)에 대해서만 웹 검색 기능을 켠 AI 호출을
+ * 오늘의 브리핑 상위 신호(최대 3건, 비용 통제용)에 대해서만 웹 검색을 반영한 AI 호출을
  * 추가로 1회 실행해 더 구체적인 "웹 검색 기반 대응 방안"을 만들고, highlight_actions_ai로
  * 저장합니다. 신호 자체(사실관계)는 여전히 위에서 이미 계산된 것만 사용하며, "대응 방안"에
  * 한해서만 웹 검색 결과 반영을 허용합니다 — 반드시 참고 출처와 함께. 웹 검색 호출이 실패하거나
  * 응답 파싱이 안 되면 이 보강 없이 조용히 건너뛰며(빈 배열), 기존 규칙 기반 권장 조치·오늘의
  * 브리핑 코멘트에는 전혀 영향이 없습니다.
  *
- * [v6.1 수정 — 2026-08-11] Gemini의 "웹 검색(Grounding with Google Search)" 기능은 결제
- * 미등록 무료 API 키에서는 대부분 모델에서 아예 사용 불가하며, 예외적으로 gemini-2.5-flash /
- * gemini-2.5-flash-lite 두 모델만 결제 없이 하루 500건까지 무료로 지원됩니다. 기존에는
- * 일반 코멘트 생성과 동일하게 GEMINI_MODEL(기본값 gemini-3.5-flash-lite)을 웹 검색 호출에도
- * 그대로 썼는데, 이 모델은 무료 예외 대상이 아니라서 결제 미등록 키에서는 429(할당량 초과)
- * 오류로 항상 실패했습니다. 이를 고치기 위해 "웹 검색 호출 전용" 모델을 별도로
- * GEMINI_SEARCH_MODEL(기본값 gemini-2.5-flash-lite)로 분리했습니다 — 일반 코멘트 생성
- * 모델(GEMINI_MODEL)은 그대로 두고, 웹 검색 호출에만 무료 등급이 지원되는 모델을 씁니다.
+ * [v7 교체 — 2026-08-11] v6은 Gemini/Claude에 내장된 "웹 검색(Grounding)" 기능을 그대로
+ * 썼는데, 두 회사 모두 결제 미등록(무료) API 키에서는 이 기능을 거의 지원하지 않고
+ * (지원하던 구형 모델들도 이후 서비스 종료됨), 결제 등록이 필수가 되어버렸습니다. 결제
+ * 등록 없이 계속 무료로 쓸 수 있도록, 웹 검색 자체는 별도의 검색 전용 API인 Tavily
+ * (tavily.com — 카드 등록 없이 월 1,000건 무료)로 하고, 그 검색 결과(제목·URL·요약)만
+ * 기존 AI 호출(callAiProvider — 그라운딩 도구 없는 일반 텍스트 생성 호출)에 참고자료로
+ * 넘겨서 "대응 방안" 문장을 작성하게 하는 방식으로 바꿨습니다. 즉 "검색"과 "글쓰기"를
+ * 분리한 것입니다. 안전장치는 v6과 동일합니다 — 신호(사실관계)는 이미 계산된 것만 사용,
+ * 검색 결과가 없으면 억지로 지어내지 않음, 실패 시 빈 배열로 조용히 건너뜀.
  *
  * 필요 환경변수: AI_PROVIDER=claude 인 경우 ANTHROPIC_API_KEY,
  *              AI_PROVIDER=gemini 인 경우 GEMINI_API_KEY (둘 다 GitHub Repository Secret으로 등록)
+ *              TAVILY_API_KEY — "웹 검색 기반 대응 방안"(v7) 기능에 필요. tavily.com에서
+ *                무료 가입(카드 등록 불필요) 후 발급받은 키를 GitHub Repository Secret으로
+ *                등록하세요. 이 키가 없거나 호출이 실패해도 나머지 기능에는 영향이 없습니다
+ *                (이 기능만 조용히 건너뜁니다).
  * 선택 환경변수: AI_PROVIDER (기본값 gemini — 'claude' 또는 'gemini')
  *              CLAUDE_MODEL (AI_PROVIDER=claude일 때, 기본값 claude-haiku-4-5)
  *              GEMINI_MODEL (AI_PROVIDER=gemini일 때, 기본값 gemini-3.5-flash-lite — 가장 저렴한 모델)
- *              GEMINI_SEARCH_MODEL (AI_PROVIDER=gemini일 때 "웹 검색 호출" 전용, 기본값
- *                gemini-2.5-flash-lite — 결제 미등록 키도 하루 500건까지 무료로 웹 검색 가능)
  * 실행 방법:     node scripts/generate-insight.js
  * 실행 환경:     Node.js 18 이상 (내장 fetch 사용, 별도 설치 불필요)
  */
@@ -75,10 +78,7 @@ const OUTPUT_PATH = path.join(__dirname, '..', 'data', 'latest-insight.json');
 const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').trim().toLowerCase();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-// [v6.1] 웹 검색(Grounding) 호출 전용 모델 — 결제 미등록 키도 무료로 웹 검색이 가능한 모델을 기본값으로 사용합니다.
-const GEMINI_SEARCH_MODEL = process.env.GEMINI_SEARCH_MODEL || 'gemini-2.5-flash-lite';
 const MODEL = AI_PROVIDER === 'claude' ? CLAUDE_MODEL : GEMINI_MODEL;
-const SEARCH_MODEL = AI_PROVIDER === 'claude' ? CLAUDE_MODEL : GEMINI_SEARCH_MODEL;
  
 // ---------------------------------------------------------------------------
 // 1. 시트 데이터 가져오기 (gviz CSV export) + CSV 파서
@@ -720,88 +720,35 @@ async function callAiProvider(prompt, maxTokens) {
 }
  
 // ---------------------------------------------------------------------------
-// 4' [v6] 웹 검색이 켜진 버전 — 위 callAnthropicApi/callGeminiApi와 동일한 API를 쓰되,
-//    Claude는 web_search 도구를, Gemini는 구글 검색 연동(google_search) 도구를 함께
-//    요청합니다. 반환값은 { text, sources }로, sources는 실제로 참고된 웹 페이지
-//    목록(중복 제거)입니다 — 화면에 "참고 출처"로 그대로 노출하기 위함입니다.
-//    [v6.1] Gemini 웹 검색 호출은 GEMINI_MODEL이 아니라 GEMINI_SEARCH_MODEL을 씁니다
-//    (결제 미등록 키에서도 무료로 지원되는 모델로 고정하기 위함 — 상단 설명 참고).
+// 4' [v7] Tavily 검색 API 호출 — "웹 검색 기반 대응 방안" 기능 전용. 카드 등록 없이 월
+//    1,000건까지 무료(tavily.com)이며, 결과는 {title, url, content(요약)} 목록입니다.
+//    이 결과 자체를 화면에 보여주는 게 아니라, 아래 generateWebInformedActions()에서
+//    AI 프롬프트에 "참고자료"로 넘겨 대응 방안 문장을 쓰게 하는 재료로만 씁니다.
 // ---------------------------------------------------------------------------
-async function callAnthropicApiWithSearch(prompt, maxTokens) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다.');
+async function callTavilySearch(query, maxResults) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error('TAVILY_API_KEY 환경변수가 설정되어 있지 않습니다.');
  
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      api_key: apiKey,
+      query,
+      search_depth: 'basic',
+      max_results: maxResults || 3,
     }),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    throw new Error(`Claude(웹검색) API 호출 실패: HTTP ${res.status} ${errText}`);
+    throw new Error(`Tavily 검색 API 호출 실패: HTTP ${res.status} ${errText}`);
   }
   const json = await res.json();
-  const blocks = json.content || [];
-  const text = blocks.filter(b => b.type === 'text').map(b => b.text || '').join('').trim();
-  const sources = [];
-  const seenUrls = new Set();
-  blocks.forEach(b => {
-    if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
-      b.content.forEach(r => {
-        if (r.url && !seenUrls.has(r.url)) { seenUrls.add(r.url); sources.push({ title: r.title || r.url, url: r.url }); }
-      });
-    }
-  });
-  return { text: text || '(응답이 비어 있습니다)', sources };
-}
- 
-async function callGeminiApiWithSearch(prompt, maxTokens) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY 환경변수가 설정되어 있지 않습니다.');
- 
-  // [v6.1] 여기만 GEMINI_MODEL이 아니라 GEMINI_SEARCH_MODEL을 씁니다.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_SEARCH_MODEL}:generateContent`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      tools: [{ google_search: {} }],
-      generationConfig: { maxOutputTokens: maxTokens },
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Gemini(웹검색) API 호출 실패: HTTP ${res.status} ${errText}`);
-  }
-  const json = await res.json();
-  const candidate = (json.candidates || [])[0];
-  const parts = candidate && candidate.content && candidate.content.parts ? candidate.content.parts : [];
-  const text = parts.map(p => p.text || '').join('').trim();
-  const chunks = (candidate && candidate.groundingMetadata && candidate.groundingMetadata.groundingChunks) || [];
-  const sources = [];
-  const seenUrls = new Set();
-  chunks.forEach(c => {
-    const web = c.web || {};
-    if (web.uri && !seenUrls.has(web.uri)) { seenUrls.add(web.uri); sources.push({ title: web.title || web.uri, url: web.uri }); }
-  });
-  return { text: text || '(응답이 비어 있습니다)', sources };
-}
- 
-async function callAiProviderWithSearch(prompt, maxTokens) {
-  return AI_PROVIDER === 'claude' ? callAnthropicApiWithSearch(prompt, maxTokens) : callGeminiApiWithSearch(prompt, maxTokens);
+  return (json.results || []).map(r => ({
+    title: r.title || r.url,
+    url: r.url,
+    content: (r.content || '').slice(0, 400),
+  }));
 }
  
 function extractJsonArray(text) {
@@ -814,14 +761,28 @@ function extractJsonArray(text) {
   try { return JSON.parse(s.slice(start, end + 1)); } catch (e) { return null; }
 }
  
+// [v7] 신호(하이라이트) 하나당 Tavily에 던질 검색어를 만듭니다. 신호 유형별로 검색 의도가
+// 다르므로(공종 수요 동향 vs 특정 업체 뉴스) 유형에 따라 검색어를 다르게 구성합니다.
+function buildSearchQueryFor(h) {
+  if (!h.subject) return '건설 특허공법 POUR 시장 동향';
+  if (h.type === 'worktype' || h.type === 'worktype_m' || h.type === 'trend_cat') {
+    return `${h.subject} 공사 시장 동향 뉴스`;
+  }
+  return `${h.subject} 건설 특허공법 뉴스`;
+}
+ 
 // ---------------------------------------------------------------------------
-// 4c. [v6] 웹 검색 기반 "권장 조치" 보강 — 오늘의 브리핑 상위 신호(최대 WEB_ACTION_TOP_N건)에
-//    대해, 규칙 기반 문구(ACTION_MAP)보다 구체적인 대응 방안을 웹 검색을 활용해 작성합니다.
+// 4c. [v7] 웹 검색 기반 "권장 조치" 보강 — 오늘의 브리핑 상위 신호(최대 WEB_ACTION_TOP_N건)에
+//    대해, 규칙 기반 문구(ACTION_MAP)보다 구체적인 대응 방안을 작성합니다.
+//    절차: (1) 신호별로 Tavily 검색 → (2) 검색 결과를 신호와 함께 일반 AI 호출(그라운딩
+//    도구 없음, callAiProvider)에 참고자료로 전달 → (3) AI가 대응 방안 문장을 작성.
 //    비용/리스크 통제:
-//      - 하루 1회, 신호 최대 3건을 묶어 API 호출 1회로 처리(신호 수만큼 반복 호출하지 않음).
-//      - 신호가 하나도 없으면 호출 자체를 생략합니다.
-//      - 응답이 JSON으로 파싱되지 않거나 API 호출이 실패하면 빈 배열을 반환 — 대시보드는
-//        이 경우 기존 규칙 기반 권장 조치만 그대로 보여주므로 실패해도 안전합니다.
+//      - 신호 최대 3건까지만 처리(Tavily 검색도 최대 3회, AI 호출은 여전히 1회로 묶음).
+//      - 신호가 하나도 없으면 아무 호출도 하지 않습니다.
+//      - Tavily 검색이 실패한 신호는 "검색 결과 없음"으로 처리하고 계속 진행합니다
+//        (신호 전체를 중단시키지 않음).
+//      - 최종 AI 호출이 실패하거나 응답이 JSON으로 파싱되지 않으면 빈 배열을 반환 —
+//        대시보드는 이 경우 기존 규칙 기반 권장 조치만 그대로 보여주므로 실패해도 안전합니다.
 //      - "alert"(예: POUR 연속 무공고) 신호는 이미 문구 자체가 충분히 구체적이라 제외합니다.
 // ---------------------------------------------------------------------------
 const WEB_ACTION_TOP_N = 3;
@@ -830,35 +791,53 @@ async function generateWebInformedActions(highlights) {
   const top = highlights.filter(h => h.direction !== 'alert').slice(0, WEB_ACTION_TOP_N);
   if (top.length === 0) return [];
  
-  const signalText = top.map((h, i) => `${i + 1}. [${h.type}/${h.direction}] ${h.text}${actionFor(h) ? ` (기존 규칙 기반 권장 조치: ${actionFor(h)})` : ''}`).join('\n');
+  const searchPerSignal = [];
+  for (const h of top) {
+    const query = buildSearchQueryFor(h);
+    try {
+      const results = await callTavilySearch(query, 3);
+      searchPerSignal.push({ highlight: h, results });
+    } catch (e) {
+      console.warn(`  - ⚠ Tavily 검색 실패(${h.subject || h.type}, 계속 진행): ${e.message}`);
+      searchPerSignal.push({ highlight: h, results: [] });
+    }
+  }
+ 
+  const signalText = searchPerSignal.map((item, i) => {
+    const h = item.highlight;
+    const searchBlock = item.results.length
+      ? item.results.map((r, ri) => `   [검색결과${ri + 1}] ${r.title} (${r.url})\n   ${r.content}`).join('\n')
+      : '   (검색 결과 없음)';
+    return `${i + 1}. [${h.type}/${h.direction}] ${h.text}${actionFor(h) ? ` (기존 규칙 기반 권장 조치: ${actionFor(h)})` : ''}\n   관련 웹 검색 결과:\n${searchBlock}`;
+  }).join('\n\n');
  
   const prompt = `당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해 실무진에게 구체적인 대응 방안을 제안하는 애널리스트입니다.
-아래 신호들은 이미 데이터로 확인된 사실입니다. 각 신호에 대해 웹 검색으로 관련 최신 정보(업계 동향, 관련 기업 뉴스, 정책·시장 변화 등)를
-찾아본 뒤, "점검 필요"·"확인 필요" 같은 막연한 말이 아니라 실무진이 바로 참고할 수 있는 더 구체적인 대응 방안을 작성하세요.
+아래 신호들은 이미 데이터로 확인된 사실입니다. 각 신호 아래에는 관련 웹 검색 결과(제목·출처·요약)를 함께 제공했습니다.
+이 검색 결과를 참고해 "점검 필요"·"확인 필요" 같은 막연한 말이 아니라 실무진이 바로 참고할 수 있는 더 구체적인 대응 방안을 작성하세요.
  
-[신호 목록]
+[신호 및 관련 검색 결과]
 ${signalText}
  
 지시사항:
 - 신호 자체(사실관계)는 위 목록의 내용만 사용하고, 신호 자체를 추측하거나 새로 만들어내지 마세요.
-- "대응 방안"에는 웹 검색으로 찾은 관련 최신 정보를 반영해 더 구체적으로 작성하되, 확실하지 않은 추측은 "추정"이라고 명시하세요.
-- 검색으로 찾은 근거가 전혀 없다면 억지로 지어내지 말고, 기존 규칙 기반 권장 조치보다 조금 더 구체화한 수준으로만 작성하세요.
-- 각 항목마다 실제로 참고한 출처가 있으면 note에 요약해 남기세요. 없으면 "검색 결과 없음"이라고 쓰세요.
+- "대응 방안"에는 위에 제공된 검색 결과만 근거로 사용하세요 — 검색 결과에 없는 내용을 지어내지 마세요.
+- 해당 신호에 "(검색 결과 없음)"이라고 되어 있으면, 검색 결과를 지어내지 말고 기존 규칙 기반 권장 조치보다 조금 더 구체화한 수준으로만 작성하세요.
+- 각 항목마다 실제로 참고한 검색 결과가 있으면 note에 요약해 남기세요(어느 검색결과 번호를 참고했는지 언급 가능). 없으면 "검색 결과 없음"이라고 쓰세요.
 - 존댓말을 사용하세요.
 - 아래 JSON 배열 형식으로만 답하세요. 다른 설명 문장은 붙이지 마세요.
 [
-  { "index": 1, "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "note": "웹 검색 근거 요약 또는 '검색 결과 없음'" }
+  { "index": 1, "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "note": "참고한 검색 결과 요약 또는 '검색 결과 없음'" }
 ]`;
  
-  let result;
+  let text;
   try {
-    result = await callAiProviderWithSearch(prompt, 1536);
+    text = await callAiProvider(prompt, 1536);
   } catch (e) {
     console.warn(`  - ⚠ 웹 검색 기반 권장 조치 생성 실패(건너뜀): ${e.message}`);
     return [];
   }
  
-  const parsed = extractJsonArray(result.text);
+  const parsed = extractJsonArray(text);
   if (!Array.isArray(parsed)) {
     console.warn('  - ⚠ 웹 검색 기반 권장 조치 응답 파싱 실패(건너뜀)');
     return [];
@@ -866,8 +845,9 @@ ${signalText}
  
   return parsed.map(item => {
     const idx = Number(item.index) - 1;
-    const h = top[idx];
-    if (!h || !item.action) return null;
+    const entry = searchPerSignal[idx];
+    if (!entry || !item.action) return null;
+    const h = entry.highlight;
     return {
       text: h.text,
       type: h.type,
@@ -876,7 +856,7 @@ ${signalText}
       rule_action: actionFor(h),
       ai_action: String(item.action).trim(),
       note: item.note ? String(item.note).trim() : null,
-      sources: result.sources || [],
+      sources: entry.results.map(r => ({ title: r.title, url: r.url })),
     };
   }).filter(Boolean);
 }
@@ -1032,9 +1012,9 @@ async function main() {
     })),
     commentary: result.commentary,
  
-    // --- [v6] 오늘의 브리핑 상위 신호에 대한 웹 검색 기반 "권장 조치" 보강 (실패/신호없음 시 빈 배열) ---
+    // --- [v7] 오늘의 브리핑 상위 신호에 대한 웹 검색(Tavily) 기반 "권장 조치" 보강 (실패/신호없음 시 빈 배열) ---
     highlight_actions_ai: webActions,
-    web_action_model: webActions.length ? SEARCH_MODEL : null,
+    web_action_model: webActions.length ? MODEL : null,
  
     // --- 구성 · 순위 / 원자료 표 탭의 "종합" 세션용 월간(전월 대비) AI 코멘트 ---
     monthly_period: mctx.hasEnoughData ? {
@@ -1088,5 +1068,5 @@ module.exports = {
   parseCsv, normalizeCompanyName, buildDatasets, computeHighlights, ACTION_MAP, actionFor,
   josa, computeMonthlySignals, monthlyCategorySums, monthlyWorktypeSums,
   computeTrendWeeklySignals, weekMondayStr,
-  extractJsonArray, generateWebInformedActions,
+  extractJsonArray, generateWebInformedActions, callTavilySearch, buildSearchQueryFor,
 };
