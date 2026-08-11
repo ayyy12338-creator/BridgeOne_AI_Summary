@@ -73,6 +73,16 @@
  * 참고한 결과의 번호(used_indices)만 요청 — 원본 검색 결과 전체가 아니라 AI가 관련 있다고
  * 판단해 실제로 인용한 것만 화면의 "출처"에 표시되도록 바꿨습니다.
  *
+ * [v11 추가 — 2026-08-11] Joe 요청("고객여정 데이터 대시보드에 연동해서 유의미한 의미를
+ * 볼 수 있나") — B2B사업운영팀이 관리하는 별도 스프레드시트("POUR 컨설팅 내역서 발행
+ * List")의 "여정_최종" 시트를 매일 함께 읽어와, 문의(L2)→컨설팅(L3)→공고(L4)→낙찰(L5)
+ * 퍼널을 현장+공종 단위 케이스 기준 6개 유형(문의만/컨설팅후미상/공고진행중/유찰공고취소/
+ * 타사낙찰/POUR낙찰성공)으로 규칙 기반 집계해 customer_journey_funnel로 저장합니다. AI
+ * 호출이 전혀 없는 순수 집계 기능이며(숫자를 창작하지 않음), 이 시트는 위 POUR 공고문
+ * 시트(SHEET_ID)와는 별개의 시트(JOURNEY_SHEET_ID)입니다. 확인된 한계: "타공법낙찰"
+ * 행의 업체명은 실제 낙찰 경쟁사가 아니라 우리 협력사명이라, "어느 경쟁사가 이겼는지"까지는
+ * 이 데이터만으로 알 수 없습니다(추후 필요 시 POUR 공고문 데이터와 별도 교차 매칭 필요).
+ *
  * 필요 환경변수: AI_PROVIDER=claude 인 경우 ANTHROPIC_API_KEY,
  *              AI_PROVIDER=gemini 인 경우 GEMINI_API_KEY (둘 다 GitHub Repository Secret으로 등록)
  *              TAVILY_API_KEY — "웹 검색 기반 대응 방안"(v7) 기능에 필요. tavily.com에서
@@ -85,35 +95,44 @@
  * 실행 방법:     node scripts/generate-insight.js
  * 실행 환경:     Node.js 18 이상 (내장 fetch 사용, 별도 설치 불필요)
  */
- 
+
 const fs = require('fs');
 const path = require('path');
- 
+
 // ---------------------------------------------------------------------------
 // 0. 설정값 — 대시보드(v01_improved.html)와 동일한 시트 ID/GID를 그대로 사용합니다.
 // ---------------------------------------------------------------------------
 const SHEET_ID = '1uYftf05-dZ0VS3tPzvEV-G0fukcc8QFShXkbKMzRQ4U';
 const DATA_GID = '0';
 const PATENT_GID = '401781610';
+
+// [v11 추가] "고객여정 퍼널" 기능용 — B2B사업운영팀이 관리하는 별도의 구글 스프레드시트
+// ("POUR 컨설팅 내역서 발행 List") 중 "여정_최종" 탭. 위 SHEET_ID(공고문 데이터)와는
+// 완전히 다른 시트이므로 SHEET_ID를 따로 둡니다. gviz CSV export가 익명으로 동작하려면
+// 이 시트가 "링크가 있는 모든 사용자 - 뷰어"로 공유되어 있어야 합니다.
+const JOURNEY_SHEET_ID = '1gRPRcxpWD-svZq7KfnS5FAugAtQNPq24J5Jml9SSE-s';
+const JOURNEY_GID = '601103674'; // "여정_최종" 탭
+
 const OUTPUT_PATH = path.join(__dirname, '..', 'data', 'latest-insight.json');
- 
+
 // AI_PROVIDER: 'claude' 또는 'gemini' — 기본값은 gemini(현재 등록된 키 기준).
 // 나중에 Anthropic 키를 등록하고 AI_PROVIDER=claude로만 바꾸면 코드 수정 없이 Claude로 전환됩니다.
 const AI_PROVIDER = (process.env.AI_PROVIDER || 'gemini').trim().toLowerCase();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 const MODEL = AI_PROVIDER === 'claude' ? CLAUDE_MODEL : GEMINI_MODEL;
- 
+
 // ---------------------------------------------------------------------------
 // 1. 시트 데이터 가져오기 (gviz CSV export) + CSV 파서
 // ---------------------------------------------------------------------------
-async function fetchCsv(gid) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${gid}&tqx=out:csv`;
+async function fetchCsv(gid, sheetId) {
+  const id = sheetId || SHEET_ID;
+  const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?gid=${gid}&tqx=out:csv`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`시트 CSV 다운로드 실패 (gid=${gid}): HTTP ${res.status}`);
   return await res.text();
 }
- 
+
 // RFC4180 스타일 CSV 파서 — 큰따옴표로 감싼 필드, 필드 내 콤마/줄바꿈, ""로 이스케이프된 따옴표를 처리합니다.
 function parseCsv(text) {
   const rows = [];
@@ -141,7 +160,7 @@ function parseCsv(text) {
   // 끝에 빈 줄이 남는 경우 제거
   return rows.filter(r => !(r.length === 1 && r[0] === ''));
 }
- 
+
 // ---------------------------------------------------------------------------
 // 2. 대시보드와 동일한 집계 로직 (buildDatasets 이식)
 // ---------------------------------------------------------------------------
@@ -164,7 +183,7 @@ function josa(word, pair) {
   const hasBatchim = (code - 0xAC00) % 28 !== 0;
   return hasBatchim ? pair[0] : pair[1];
 }
- 
+
 const RAW_CATS = ['POUR', '다특허', '다특허(PD)', 'DO', 'CNC', '일반', '타사'];
 const MAIN_CATS = ['POUR', '다특허', 'DO', 'CNC', '일반', '타사'];
 const TOP_COMPANY_COUNT = 8;
@@ -173,7 +192,7 @@ const ETC_LABEL = '기타 (그 외 군소·미분류)';
 const METHOD_TYPE_COLS = ['옥상방수', '재도장', '주차장', '도로', '기타'];
 const METHOD_TYPE_UNCLASSIFIED = '미분류';
 const TREND_WORKTYPES = METHOD_TYPE_COLS.concat(METHOD_TYPE_UNCLASSIFIED);
- 
+
 function buildDatasets(patentRows, mainRows) {
   const patentMap = new Map();
   patentRows.slice(1).forEach(r => {
@@ -182,12 +201,12 @@ function buildDatasets(patentRows, mainRows) {
     if (!patentNo || isJunkCompanyName(name)) return;
     patentMap.set(patentNo, name);
   });
- 
+
   const header = mainRows[0];
   const idx = name => header.indexOf(name);
   const iCat = idx('구분'), iDate = idx('공고일'), iPatent = idx('특허번호');
   const iMethodCols = METHOD_TYPE_COLS.map(name => idx(name));
- 
+
   const dailyMapBuild = {};
   const companyDailyBuild = {};
   const companyTotals = {};
@@ -200,7 +219,7 @@ function buildDatasets(patentRows, mainRows) {
     if (!methodDailyBuild[date][methodType]) methodDailyBuild[date][methodType] = { pour: 0, companies: {} };
     return methodDailyBuild[date][methodType];
   }
- 
+
   mainRows.slice(1).forEach(r => {
     if (!r || r.length < 2) return;
     const date = (r[iDate] || '').trim();
@@ -209,7 +228,7 @@ function buildDatasets(patentRows, mainRows) {
     if (!dailyMapBuild[date]) dailyMapBuild[date] = {};
     dailyMapBuild[date][cat] = (dailyMapBuild[date][cat] || 0) + 1;
     if (cat === '다특허(PD)') pdTotal++;
- 
+
     const isPourGroup = (cat === 'POUR' || cat === '다특허(PD)');
     let methodType = METHOD_TYPE_UNCLASSIFIED;
     if (isPourGroup || cat === '타사') {
@@ -218,29 +237,29 @@ function buildDatasets(patentRows, mainRows) {
       }
       if (isPourGroup) methodDailyBucket(date, methodType).pour++;
     }
- 
+
     if (cat === '타사') {
       const patentRaw = (r[iPatent] || '').trim();
       const firstPatent = patentRaw.split(/\s+/)[0];
       const companyName = patentMap.get(firstPatent) || ETC_LABEL;
- 
+
       if (!companyDailyBuild[date]) companyDailyBuild[date] = {};
       companyDailyBuild[date][companyName] = (companyDailyBuild[date][companyName] || 0) + 1;
- 
+
       companyTotals[companyName] = (companyTotals[companyName] || 0) + 1;
       const ym = date.slice(0, 7);
       monthSet.add(ym);
       if (!companyMonthly[companyName]) companyMonthly[companyName] = {};
       companyMonthly[companyName][ym] = (companyMonthly[companyName][ym] || 0) + 1;
- 
+
       const mBucket = methodDailyBucket(date, methodType);
       mBucket.companies[companyName] = (mBucket.companies[companyName] || 0) + 1;
     }
   });
- 
+
   const dates = Object.keys(dailyMapBuild).sort();
   const dateMin = dates[0], dateMax = dates[dates.length - 1];
- 
+
   const daily = dates.map(date => {
     const rec = { date };
     const raw = dailyMapBuild[date];
@@ -251,21 +270,21 @@ function buildDatasets(patentRows, mainRows) {
     rec.total = total;
     return rec;
   });
- 
+
   const months = [...monthSet].sort();
   const sortedCompanies = Object.entries(companyTotals)
     .filter(([name]) => name !== ETC_LABEL)
     .sort((a, b) => b[1] - a[1]);
- 
+
   const topCompanies = sortedCompanies.slice(0, TOP_COMPANY_COUNT);
   const restCompanies = sortedCompanies.slice(TOP_COMPANY_COUNT);
   const etcTotal = restCompanies.reduce((s, [, v]) => s + v, 0) + (companyTotals[ETC_LABEL] || 0);
- 
+
   function monthlyArrayFor(name) {
     const m = companyMonthly[name] || {};
     return months.map(ym => m[ym] || 0);
   }
- 
+
   const companies = topCompanies.map(([name, total]) => ({ name, total, monthly: monthlyArrayFor(name) }));
   const etcMonthly = months.map(ym => {
     let v = (companyMonthly[ETC_LABEL] && companyMonthly[ETC_LABEL][ym]) || 0;
@@ -273,15 +292,15 @@ function buildDatasets(patentRows, mainRows) {
     return v;
   });
   companies.push({ name: ETC_LABEL, total: etcTotal, monthly: etcMonthly });
- 
+
   const etcFloor = topCompanies.length ? topCompanies[topCompanies.length - 1][1] * 0.5 : 0;
   const emergingCompanies = restCompanies
     .filter(([, total]) => total >= etcFloor)
     .slice(0, EMERGING_COMPANY_COUNT)
     .map(([name, total]) => ({ name, total, monthly: monthlyArrayFor(name) }));
- 
+
   const totalCompetitor = Object.values(companyTotals).reduce((s, v) => s + v, 0);
- 
+
   const DATA = { daily, date_min: dateMin, date_max: dateMax, categories: MAIN_CATS, pd_total: pdTotal };
   const COMPETITOR_DATA = {
     months, companies, emerging_companies: emergingCompanies,
@@ -289,14 +308,14 @@ function buildDatasets(patentRows, mainRows) {
     unmatched_count: companyTotals[ETC_LABEL] || 0,
     total_unique_companies: Object.keys(companyTotals).length,
   };
- 
+
   // 대시보드와 동일하게 일자별 레코드에 업체별 건수를 병합
   const COMPANY_NAMES = COMPETITOR_DATA.companies.map(c => c.name);
   DATA.daily.forEach(d => {
     const dayComp = companyDailyBuild[d.date] || {};
     COMPANY_NAMES.forEach(name => { d[name] = dayComp[name] || 0; });
   });
- 
+
   // 공종별 일자 합계 (오늘의 브리핑 하이라이트용) — METHOD_DAILY를 DATA.daily와 같은 형태로 변환
   const worktypeDailyMap = {};
   DATA.daily.forEach(d => {
@@ -308,13 +327,13 @@ function buildDatasets(patentRows, mainRows) {
     });
     worktypeDailyMap[d.date] = rec;
   });
- 
+
   const dailyMap = {};
   DATA.daily.forEach(d => { dailyMap[d.date] = d; });
- 
+
   return { DATA, COMPETITOR_DATA, COMPANY_DAILY: companyDailyBuild, dailyMap, worktypeDailyMap, COMPANY_NAMES };
 }
- 
+
 // ---------------------------------------------------------------------------
 // 3. 오늘의 브리핑 하이라이트 로직 이식 (renderBriefing의 규칙 부분만 — 화면 렌더링 제외)
 // ---------------------------------------------------------------------------
@@ -351,7 +370,7 @@ const ACTION_MAP = {
   'trend_cat-down': '해당 구분 최근 주간 감소 추세 원인 점검',
 };
 function actionFor(h) { return ACTION_MAP[`${h.type}-${h.direction}`] || null; }
- 
+
 function computeHighlights(ds) {
   const { DATA, COMPETITOR_DATA, COMPANY_DAILY, dailyMap, worktypeDailyMap, COMPANY_NAMES } = ds;
   const allDatesSorted = DATA.daily.map(d => d.date).sort();
@@ -360,20 +379,20 @@ function computeHighlights(ds) {
   function lastNDates(endDate, n) { const res = []; let d = new Date(endDate); for (let i = 0; i < n; i++) { res.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() - 1); } return res.reverse(); }
   const recent7 = lastNDates(latestDate, 7);
   const prev7 = lastNDates(shiftDate(latestDate, -7), 7);
- 
+
   function sumField(dates, field) { return dates.reduce((s, dt) => s + ((dailyMap[dt] && dailyMap[dt][field]) || 0), 0); }
   function sumWorktype(dates, type) { return dates.reduce((s, dt) => s + ((worktypeDailyMap[dt] && worktypeDailyMap[dt][type]) || 0), 0); }
- 
+
   const totalRecent = sumField(recent7, 'total'), totalPrev = sumField(prev7, 'total');
   const pourRecent = sumField(recent7, 'POUR'), pourPrev = sumField(prev7, 'POUR');
   const pourShareRecent = totalRecent ? (pourRecent / totalRecent * 100) : 0;
   const pourSharePrev = totalPrev ? (pourPrev / totalPrev * 100) : 0;
   const shareDiff = pourShareRecent - pourSharePrev;
- 
+
   const THRESH_PCT = 20;
   const MIN_BASE = 3;
   const highlights = [];
- 
+
   TREND_WORKTYPES.forEach(type => {
     const r = sumWorktype(recent7, type), p = sumWorktype(prev7, type);
     if (p === 0) { if (r >= 3) highlights.push({ text: `${type} 공종에서 최근 7일 새로 ${r}건이 발생했습니다 (직전 7일 0건).`, score: 60, type: 'worktype', subject: type, direction: 'new' }); return; }
@@ -381,7 +400,7 @@ function computeHighlights(ds) {
     const pct = (r - p) / p * 100;
     if (Math.abs(pct) >= THRESH_PCT) highlights.push({ text: `${type} 공종이 직전 7일 ${p}건 → 최근 7일 ${r}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`, score: Math.abs(pct), type: 'worktype', subject: type, direction: pct > 0 ? 'up' : 'down', pct });
   });
- 
+
   COMPANY_NAMES.forEach(name => {
     if (name.startsWith('기타')) return;
     const r = sumField(recent7, name), p = sumField(prev7, name);
@@ -390,11 +409,11 @@ function computeHighlights(ds) {
     const pct = (r - p) / p * 100;
     if (Math.abs(pct) >= THRESH_PCT) highlights.push({ text: `${name}이(가) 직전 7일 ${p}건 → 최근 7일 ${r}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`, score: Math.abs(pct), type: 'company', subject: name, direction: pct > 0 ? 'up' : 'down', pct });
   });
- 
+
   if (totalPrev >= MIN_BASE && Math.abs(shareDiff) >= 3) {
     highlights.push({ text: `전체 공고 중 POUR 비중이 직전 7일 ${pourSharePrev.toFixed(1)}% → 최근 7일 ${pourShareRecent.toFixed(1)}%로 ${shareDiff > 0 ? '▲' : '▼'}${Math.abs(shareDiff).toFixed(1)}%p ${shareDiff > 0 ? '상승' : '하락'}했습니다.`, score: Math.abs(shareDiff) * 8, type: 'pour_share', direction: shareDiff > 0 ? 'up' : 'down', magnitude: shareDiff });
   }
- 
+
   let pourDrySpell = 0;
   {
     let d = latestDate;
@@ -409,7 +428,7 @@ function computeHighlights(ds) {
   if (pourDrySpell >= 3) {
     highlights.push({ text: `⚠ POUR 관련 공고가 ${pourDrySpell}일 연속 0건입니다 (최신 데이터 기준일 ${latestDate}까지).`, score: 200, type: 'pour_dry_spell', direction: 'alert', days: pourDrySpell });
   }
- 
+
   (COMPETITOR_DATA.emerging_companies || []).forEach(c => {
     const rEm = recent7.reduce((s, dt) => s + ((COMPANY_DAILY[dt] && COMPANY_DAILY[dt][c.name]) || 0), 0);
     const pEm = prev7.reduce((s, dt) => s + ((COMPANY_DAILY[dt] && COMPANY_DAILY[dt][c.name]) || 0), 0);
@@ -418,16 +437,16 @@ function computeHighlights(ds) {
     const pct = (rEm - pEm) / pEm * 100;
     if (Math.abs(pct) >= THRESH_PCT) highlights.push({ text: `🆕 신흥 업체 ${c.name}이(가) 직전 7일 ${pEm}건 → 최근 7일 ${rEm}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다 (주요 8개사 밖 요주의 업체).`, score: Math.abs(pct) + 5, type: 'emerging', subject: c.name, direction: pct > 0 ? 'up' : 'down', pct });
   });
- 
+
   highlights.sort((a, b) => b.score - a.score);
- 
+
   return {
     highlights, latestDate, recent7, prev7,
     totalRecent, totalPrev, pourRecent, pourPrev,
     pourShareRecent, pourSharePrev, shareDiff, pourDrySpell,
   };
 }
- 
+
 // ---------------------------------------------------------------------------
 // 3a-2. "추세 분석" 탭 종합 세션용 — 주요 대분류 · 주차별(최근 N주 vs 직전 N주) 신호 계산
 //     대시보드 "추세 분석" 탭은 일별/주별/월별·표시 항목·업체/공종 필터를 사용자가 그때그때
@@ -442,7 +461,7 @@ function computeHighlights(ds) {
 const WEEKLY_THRESH_PCT = 20;
 const WEEKLY_MIN_BASE = 5;
 const WEEKLY_MAX_SPAN = 4;
- 
+
 function weekMondayStr(dateStr) {
   const dt = new Date(dateStr);
   const monday = new Date(dt);
@@ -454,12 +473,12 @@ function addDays(dateStr, days) {
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
- 
+
 function computeTrendWeeklySignals(ds) {
   const { dailyMap, DATA } = ds;
   const allDates = Object.keys(dailyMap).sort();
   if (allDates.length === 0) return { hasEnoughData: false, highlights: [] };
- 
+
   const latestDate = DATA.date_max;
   const weekSums = {};
   allDates.forEach(date => {
@@ -469,7 +488,7 @@ function computeTrendWeeklySignals(ds) {
     MAIN_CATS.forEach(c => { weekSums[wk][c] += (rec[c] || 0); });
   });
   let weeks = Object.keys(weekSums).sort();
- 
+
   // 마지막 주의 일요일이 아직 최신 데이터 기준일보다 뒤라면(=이번 주가 진행 중이라면) 비교에서 제외.
   let comparisonNote = null;
   if (weeks.length) {
@@ -480,17 +499,17 @@ function computeTrendWeeklySignals(ds) {
       comparisonNote = `이번 주는 아직 진행 중이라 완결된 최근 주 단위로만 비교했습니다(최신 데이터 기준일 ${latestDate}).`;
     }
   }
- 
+
   if (weeks.length < 2) return { hasEnoughData: false, highlights: [], comparisonNote };
- 
+
   const span = Math.max(1, Math.min(WEEKLY_MAX_SPAN, Math.floor(weeks.length / 2)));
   const recentWeeks = weeks.slice(weeks.length - span);
   const prevWeeks = weeks.slice(Math.max(0, weeks.length - 2 * span), weeks.length - span);
- 
+
   function sumCat(weekList, cat) {
     return weekList.reduce((s, wk) => s + (weekSums[wk][cat] || 0), 0);
   }
- 
+
   const highlights = [];
   MAIN_CATS.forEach(cat => {
     const r = sumCat(recentWeeks, cat), p = sumCat(prevWeeks, cat);
@@ -502,12 +521,12 @@ function computeTrendWeeklySignals(ds) {
     const pct = (r - p) / p * 100;
     if (Math.abs(pct) >= WEEKLY_THRESH_PCT) highlights.push({ text: `${cat} 공고가 직전 ${span}주 ${p}건 → 최근 ${span}주 ${r}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`, score: Math.abs(pct), type: 'trend_cat', subject: cat, direction: pct > 0 ? 'up' : 'down', pct });
   });
- 
+
   highlights.sort((a, b) => b.score - a.score);
- 
+
   return { hasEnoughData: true, span, recentWeeks, prevWeeks, comparisonNote, highlights };
 }
- 
+
 // ---------------------------------------------------------------------------
 // 3b. 월간(전월 대비) 변동 신호 계산 — "구성 · 순위" / "원자료 표" 탭 종합 세션용
 //     대시보드의 compositionGlance / rawdataGlance와 같은 관점(이번 달 vs 전월)으로,
@@ -520,14 +539,14 @@ function computeTrendWeeklySignals(ds) {
 // ---------------------------------------------------------------------------
 const MONTHLY_THRESH_PCT = 15;
 const MONTHLY_MIN_BASE = 5;
- 
+
 function monthKey(dateStr) { return dateStr.slice(0, 7); }
- 
+
 function daysInMonth(ym) {
   const [y, m] = ym.split('-').map(Number);
   return new Date(y, m, 0).getDate(); // 다음 달 0일 = 이번 달의 마지막 날
 }
- 
+
 // dailyRecords: {date: {field: number, ...}} 형태(ds.dailyMap / ds.worktypeDailyMap 공통 형태).
 // dayCap이 null이면 그 달 전체, 숫자면 1일~dayCap일까지만 합산합니다.
 function sumFieldsForMonth(dailyRecords, ym, dayCap, fieldNames) {
@@ -542,7 +561,7 @@ function sumFieldsForMonth(dailyRecords, ym, dayCap, fieldNames) {
   });
   return out;
 }
- 
+
 // (참고용으로 남겨둔 전체-월 합계 유틸 — computeMonthlySignals()는 월초 착시 방지를 위해
 // 아래 함수 대신 sumFieldsForMonth()로 날짜를 잘라가며 직접 재집계합니다.)
 function monthlyCategorySums(ds) {
@@ -556,7 +575,7 @@ function monthlyCategorySums(ds) {
   const months = Object.keys(sums).sort();
   return { months, sums };
 }
- 
+
 function monthlyWorktypeSums(ds) {
   const sums = {};
   Object.keys(ds.worktypeDailyMap).forEach(date => {
@@ -568,19 +587,19 @@ function monthlyWorktypeSums(ds) {
   const months = Object.keys(sums).sort();
   return { months, sums };
 }
- 
+
 function computeMonthlySignals(ds) {
   const { COMPANY_NAMES, dailyMap, worktypeDailyMap, DATA } = ds;
   const allDates = Object.keys(dailyMap).sort();
   const monthList = [...new Set(allDates.map(monthKey))].sort();
- 
+
   if (monthList.length < 2) {
     return { hasEnoughData: false, compositionHighlights: [], rawdataHighlights: [] };
   }
- 
+
   const latestYm = monthList[monthList.length - 1];
   const prevYm = monthList[monthList.length - 2];
- 
+
   // 이번 달이 아직 그 달의 마지막 날짜까지 데이터가 없으면(=진행 중) 전월도 같은 날짜까지만 자릅니다.
   const latestDay = Number(DATA.date_max.slice(8, 10));
   const latestMonthComplete = latestDay >= daysInMonth(latestYm);
@@ -589,14 +608,14 @@ function computeMonthlySignals(ds) {
   const comparisonNote = latestMonthComplete
     ? null
     : `이번 달(${latestYm})은 ${latestDay}일까지만 집계된 상태라, 공정한 비교를 위해 전월(${prevYm})도 1~${prevDayCap}일 데이터만 사용해 비교했습니다. 이번 달이 아직 끝나지 않았다는 점을 감안해 해석해주세요.`;
- 
+
   const CAT_FIELDS = MAIN_CATS.concat('total');
   const latestCat = sumFieldsForMonth(dailyMap, latestYm, null, CAT_FIELDS);
   const prevCat = sumFieldsForMonth(dailyMap, prevYm, prevDayCap, CAT_FIELDS);
- 
+
   const compositionHighlights = [];
   const rawdataHighlights = [];
- 
+
   // 1) 월간 총량 변화 — 원자료 표 탭(월별 현황표) 관점
   if (prevCat.total >= MONTHLY_MIN_BASE) {
     const pct = (latestCat.total - prevCat.total) / prevCat.total * 100;
@@ -607,7 +626,7 @@ function computeMonthlySignals(ds) {
       });
     }
   }
- 
+
   // 2) 대분류(POUR/다특허/DO/CNC/일반/타사) 구성비 변화 — 구성 · 순위 탭 관점
   MAIN_CATS.forEach(cat => {
     const r = latestCat[cat] || 0, p = prevCat[cat] || 0;
@@ -620,7 +639,7 @@ function computeMonthlySignals(ds) {
       });
     }
   });
- 
+
   // 3) POUR 비중(전체 대비) 월간 변화
   const pourShareLatest = latestCat.total ? (latestCat['POUR'] || 0) / latestCat.total * 100 : 0;
   const pourSharePrevM = prevCat.total ? (prevCat['POUR'] || 0) / prevCat.total * 100 : 0;
@@ -631,7 +650,7 @@ function computeMonthlySignals(ds) {
       score: Math.abs(shareDiffM) * 8, type: 'pour_share_m', direction: shareDiffM > 0 ? 'up' : 'down', subject: null, magnitude: shareDiffM,
     });
   }
- 
+
   // 4) 공종(옥상방수/재도장/주차장/도로/기타/미분류) 월간 변화 — 구성 · 순위 탭 관점
   const latestWt = sumFieldsForMonth(worktypeDailyMap, latestYm, null, TREND_WORKTYPES);
   const prevWt = sumFieldsForMonth(worktypeDailyMap, prevYm, prevDayCap, TREND_WORKTYPES);
@@ -645,7 +664,7 @@ function computeMonthlySignals(ds) {
     const pct = (r - p) / p * 100;
     if (Math.abs(pct) >= MONTHLY_THRESH_PCT) compositionHighlights.push({ text: `${type} 공종이 ${periodLabel} ${p}건 → 이번 달 ${r}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`, score: Math.abs(pct), type: 'worktype_m', subject: type, direction: pct > 0 ? 'up' : 'down', pct });
   });
- 
+
   // 5) 업체별 월간 변화 + 1위 업체 변동 — 구성 · 순위 탭(업체별 순위) + 원자료 표 탭 공통 소재
   //    (업체별 건수는 buildDatasets에서 이미 dailyMap 각 날짜 레코드에 병합돼 있어, 위와 동일한
   //     방식으로 day-capped 재집계가 가능합니다.)
@@ -668,10 +687,10 @@ function computeMonthlySignals(ds) {
   if (topLatest && topPrev && topLatest.name !== topPrev.name && topLatest.v >= MONTHLY_MIN_BASE) {
     rawdataHighlights.push({ text: `이번 달 공고 1위 업체가 ${topPrev.name}(${periodLabel})에서 ${topLatest.name}(이번 달, ${topLatest.v}건)로 바뀌었습니다.`, score: 90, type: 'top_competitor', subject: topLatest.name, direction: 'changed' });
   }
- 
+
   compositionHighlights.sort((a, b) => b.score - a.score);
   rawdataHighlights.sort((a, b) => b.score - a.score);
- 
+
   return {
     hasEnoughData: true, latestYm, prevYm,
     latestTotal: latestCat.total, prevTotal: prevCat.total,
@@ -680,7 +699,7 @@ function computeMonthlySignals(ds) {
     compositionHighlights, rawdataHighlights,
   };
 }
- 
+
 // ---------------------------------------------------------------------------
 // 4. AI 제공사 호출 계층 — Claude(Anthropic) / Gemini(Google) 중 AI_PROVIDER로 선택.
 //    두 함수 모두 "프롬프트 문자열만 받아 생성된 텍스트만 반환"하는 동일한 시그니처라,
@@ -690,7 +709,7 @@ function computeMonthlySignals(ds) {
 async function callAnthropicApi(prompt, maxTokens) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다. (AI_PROVIDER=claude일 때 필요 — GitHub Repository Secret 확인)');
- 
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -711,11 +730,11 @@ async function callAnthropicApi(prompt, maxTokens) {
   const json = await res.json();
   return (json.content || []).map(b => b.text || '').join('').trim() || '(응답이 비어 있습니다)';
 }
- 
+
 async function callGeminiApi(prompt, maxTokens) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY 환경변수가 설정되어 있지 않습니다. (AI_PROVIDER=gemini일 때 필요 — GitHub Repository Secret 확인)');
- 
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
   const res = await fetch(url, {
     method: 'POST',
@@ -738,11 +757,11 @@ async function callGeminiApi(prompt, maxTokens) {
   const text = parts.map(p => p.text || '').join('').trim();
   return text || '(응답이 비어 있습니다)';
 }
- 
+
 async function callAiProvider(prompt, maxTokens) {
   return AI_PROVIDER === 'claude' ? callAnthropicApi(prompt, maxTokens) : callGeminiApi(prompt, maxTokens);
 }
- 
+
 // ---------------------------------------------------------------------------
 // 4' [v7] Tavily 검색 API 호출 — 카드 등록 없이 월 1,000건까지 무료(tavily.com)이며,
 //    결과는 {title, url, content(요약)} 목록입니다. 이 결과 자체를 화면에 보여주는 게
@@ -753,12 +772,12 @@ async function callAiProvider(prompt, maxTokens) {
 // [v10] 회사명만으로 검색하면 인스타그램·나무위키·유튜브 등 업체와 무관한 콘텐츠가 자주
 // 섞여 들어옵니다(Joe 피드백: "검색 출처가 좀 이상한데요"). 기본적으로 제외할 도메인.
 const DEFAULT_EXCLUDE_DOMAINS = ['instagram.com', 'namu.wiki', 'youtube.com', 'facebook.com', 'twitter.com', 'x.com', 'tiktok.com', 'pinterest.com'];
- 
+
 async function callTavilySearch(query, maxResults, opts) {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error('TAVILY_API_KEY 환경변수가 설정되어 있지 않습니다.');
   opts = opts || {};
- 
+
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -785,7 +804,7 @@ async function callTavilySearch(query, maxResults, opts) {
     content: (r.content || '').slice(0, 400),
   }));
 }
- 
+
 function extractJsonArray(text) {
   if (!text) return null;
   let s = text.trim();
@@ -795,7 +814,7 @@ function extractJsonArray(text) {
   if (start === -1 || end === -1 || end < start) return null;
   try { return JSON.parse(s.slice(start, end + 1)); } catch (e) { return null; }
 }
- 
+
 // [v7] 신호(하이라이트) 하나당 Tavily에 던질 검색어를 만듭니다. 신호 유형별로 검색 의도가
 // 다르므로(공종 수요 동향 vs 특정 업체 뉴스) 유형에 따라 검색어를 다르게 구성합니다.
 function buildSearchQueryFor(h) {
@@ -805,7 +824,7 @@ function buildSearchQueryFor(h) {
   }
   return `${h.subject} 건설 특허공법 뉴스`;
 }
- 
+
 // ---------------------------------------------------------------------------
 // 4c. [v7] 웹 검색 기반 "권장 조치" 보강 — 오늘의 브리핑 상위 신호(최대 WEB_ACTION_TOP_N건)에
 //    대해, 규칙 기반 문구(ACTION_MAP)보다 구체적인 대응 방안을 작성합니다.
@@ -821,11 +840,11 @@ function buildSearchQueryFor(h) {
 //      - "alert"(예: POUR 연속 무공고) 신호는 이미 문구 자체가 충분히 구체적이라 제외합니다.
 // ---------------------------------------------------------------------------
 const WEB_ACTION_TOP_N = 3;
- 
+
 async function generateWebInformedActions(highlights) {
   const top = highlights.filter(h => h.direction !== 'alert').slice(0, WEB_ACTION_TOP_N);
   if (top.length === 0) return [];
- 
+
   const searchPerSignal = [];
   for (const h of top) {
     const query = buildSearchQueryFor(h);
@@ -837,7 +856,7 @@ async function generateWebInformedActions(highlights) {
       searchPerSignal.push({ highlight: h, results: [] });
     }
   }
- 
+
   const signalText = searchPerSignal.map((item, i) => {
     const h = item.highlight;
     const searchBlock = item.results.length
@@ -845,14 +864,14 @@ async function generateWebInformedActions(highlights) {
       : '   (검색 결과 없음)';
     return `${i + 1}. [${h.type}/${h.direction}] ${h.text}${actionFor(h) ? ` (기존 규칙 기반 권장 조치: ${actionFor(h)})` : ''}\n   관련 웹 검색 결과:\n${searchBlock}`;
   }).join('\n\n');
- 
+
   const prompt = `당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해 실무진에게 구체적인 대응 방안을 제안하는 애널리스트입니다.
 아래 신호들은 이미 데이터로 확인된 사실입니다. 각 신호 아래에는 관련 웹 검색 결과(제목·출처·요약)를 함께 제공했습니다.
 이 검색 결과를 참고해 "점검 필요"·"확인 필요" 같은 막연한 말이 아니라 실무진이 바로 참고할 수 있는 더 구체적인 대응 방안을 작성하세요.
- 
+
 [신호 및 관련 검색 결과]
 ${signalText}
- 
+
 지시사항:
 - 신호 자체(사실관계)는 위 목록의 내용만 사용하고, 신호 자체를 추측하거나 새로 만들어내지 마세요.
 - "대응 방안"에는 위에 제공된 검색 결과만 근거로 사용하세요 — 검색 결과에 없는 내용을 지어내지 마세요.
@@ -863,7 +882,7 @@ ${signalText}
 [
   { "index": 1, "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "note": "참고한 검색 결과 요약 또는 '검색 결과 없음'" }
 ]`;
- 
+
   let text;
   try {
     text = await callAiProvider(prompt, 1536);
@@ -871,13 +890,13 @@ ${signalText}
     console.warn(`  - ⚠ 웹 검색 기반 권장 조치 생성 실패(건너뜀): ${e.message}`);
     return [];
   }
- 
+
   const parsed = extractJsonArray(text);
   if (!Array.isArray(parsed)) {
     console.warn('  - ⚠ 웹 검색 기반 권장 조치 응답 파싱 실패(건너뜀)');
     return [];
   }
- 
+
   return parsed.map(item => {
     const idx = Number(item.index) - 1;
     const entry = searchPerSignal[idx];
@@ -895,22 +914,22 @@ ${signalText}
     };
   }).filter(Boolean);
 }
- 
+
 // ---------------------------------------------------------------------------
 // 4d. [v8] 주요 경쟁사 5개사 고정 동향 — Joe 요청. 그날의 하이라이트(변동 신호) 상위 3건에
 //    뽑혔는지와 무관하게, 아래 5개 업체는 매일 고정으로 Tavily 검색 → 일반 AI 호출로 최신
 //    동향을 요약합니다. 절차·안전장치는 generateWebInformedActions()(v7)와 동일합니다.
 // ---------------------------------------------------------------------------
 const COMPETITOR_WATCHLIST = ['4A시스템', '금영ENC', '피엠씨', '미래피앤씨', '수퍼크랙실'];
- 
+
 function buildCompetitorWatchQuery(name) {
   return `${name} 건설 특허공법 최신 소식`;
 }
- 
+
 async function generateCompetitorWatchTrends(companyNames) {
   const list = companyNames && companyNames.length ? companyNames : COMPETITOR_WATCHLIST;
   if (list.length === 0) return [];
- 
+
   const searchPerCompany = [];
   for (const name of list) {
     const query = buildCompetitorWatchQuery(name);
@@ -928,29 +947,29 @@ async function generateCompetitorWatchTrends(companyNames) {
       searchPerCompany.push({ name, results: [] });
     }
   }
- 
+
   const companyText = searchPerCompany.map((item, i) => {
     const searchBlock = item.results.length
       ? item.results.map((r, ri) => `   [검색결과${ri + 1}] ${r.title} (${r.url})\n   ${r.content}`).join('\n')
       : '   (검색 결과 없음)';
     return `${i + 1}. ${item.name}\n   관련 웹 검색 결과:\n${searchBlock}`;
   }).join('\n\n');
- 
+
   const prompt = `당신은 건설 특허공법(POUR) 시장의 경쟁사 동향을 분석해 실무진에게 구체적인 대응 방안을 제안하는 애널리스트입니다.
 아래는 주요 경쟁사 목록과, 각 업체명으로 검색한 최근 웹 검색 결과(제목·출처·요약)입니다.
- 
+
 ⚠ 중요: 회사명만으로 검색했기 때문에, 검색 결과 중 상당수가 해당 업체와 실제로 무관한 내용일
 수 있습니다(동명이인·동명업체, 완전히 다른 주제의 뉴스나 블로그 글 등). 각 업체별로 먼저 검색
 결과 하나하나가 "실제로 이 건설 경쟁사에 대한 내용이 맞는지" 판단한 뒤, 명백히 무관한 결과는
 완전히 무시하고 절대로 summary·action·sources에 반영하지 마세요.
- 
+
 각 업체별로:
 (1) 실제로 관련 있는 검색 결과에 나타난 최신 소식(신규 특허, 수주, 사업 확장, 기술 인증 등)만 요약하고,
 (2) 그 소식에 비추어 우리(브릿지원/POUR) 실무진이 취하면 좋을 구체적인 대응 방안을 함께 제시하세요.
- 
+
 [경쟁사 및 관련 검색 결과]
 ${companyText}
- 
+
 지시사항:
 - summary·action 모두 "실제로 관련 있다고 판단한" 검색 결과만 근거로 사용하세요 — 무관한 결과나, 검색 결과에 없는 내용을 지어내지 마세요.
 - 관련 있는 검색 결과가 하나도 없으면(모두 무관하거나 "검색 결과 없음"이면), summary에는 "최근 특이 동향이 검색되지 않았습니다."라고만 쓰고, action에는 "특이 조치 불필요, 지속 모니터링"처럼 일반적인 수준으로만 작성하세요. 이때 used_indices는 빈 배열 []로 남기세요.
@@ -962,7 +981,7 @@ ${companyText}
 [
   { "index": 1, "summary": "업체별 최신 동향 요약 (한국어, 존댓말, 1~2문장)", "action": "구체적인 대응 방안 (한국어, 존댓말, 1~2문장)", "used_indices": [1, 3], "note": "참고한 검색 결과 요약 또는 '관련 검색 결과 없음'" }
 ]`;
- 
+
   let text;
   try {
     text = await callAiProvider(prompt, 1536);
@@ -970,13 +989,13 @@ ${companyText}
     console.warn(`  - ⚠ 경쟁사 동향 생성 실패(건너뜀): ${e.message}`);
     return [];
   }
- 
+
   const parsed = extractJsonArray(text);
   if (!Array.isArray(parsed)) {
     console.warn('  - ⚠ 경쟁사 동향 응답 파싱 실패(건너뜀)');
     return [];
   }
- 
+
   return parsed.map(item => {
     const idx = Number(item.index) - 1;
     const entry = searchPerCompany[idx];
@@ -996,41 +1015,41 @@ ${companyText}
     };
   }).filter(Boolean);
 }
- 
+
 // ---------------------------------------------------------------------------
 // 4a. 오늘의 브리핑용 코멘트 — 이미 계산된 신호만 근거로 생성 (추측/창작 금지 명시)
 // ---------------------------------------------------------------------------
 async function callClaude(ctx) {
   const { highlights, recent7, prev7, pourShareRecent, pourSharePrev, pourDrySpell } = ctx;
   const top = highlights.slice(0, 10);
- 
+
   if (top.length === 0) {
     return {
       commentary: '최근 7일간 직전 7일 대비 뚜렷한 변동 신호가 감지되지 않았습니다. 특이사항 없이 안정적인 흐름입니다.',
       model: null, // 규칙만으로 판단, API 호출 생략(비용 절감)
     };
   }
- 
+
   const signalText = top.map((h, i) => `${i + 1}. ${h.text}${actionFor(h) ? ` (규칙상 권장 조치: ${actionFor(h)})` : ''}`).join('\n');
- 
+
   const prompt = `당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해 실무진에게 보고하는 애널리스트입니다.
 아래는 "최근 7일(${recent7[0]}~${recent7[6]})"을 "직전 7일(${prev7[0]}~${prev7[6]})"과 비교해 이미 규칙 기반으로 계산된 변동 신호 목록입니다.
 POUR 점유율: 직전 7일 ${pourSharePrev.toFixed(1)}% → 최근 7일 ${pourShareRecent.toFixed(1)}%
 POUR 연속 무공고 일수: ${pourDrySpell}일
- 
+
 [감지된 신호 목록]
 ${signalText}
- 
+
 지시사항:
 - 위 신호 목록에 있는 내용만 근거로 사용하세요. 목록에 없는 원인이나 배경을 추측해서 만들어내지 마세요.
 - 여러 신호 사이에 연관성이 보이면 짚어주되, 확실하지 않으면 "확실하지 않음" 또는 "추가 확인 필요"라고 명시하세요.
 - 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 개조식(글머리 기호 없이 문장 단위로 끊어) 한국어로 3~5문장 이내로 작성하세요.
 - 존댓말을 사용하세요.`;
- 
+
   const commentary = await callAiProvider(prompt, 1024);
   return { commentary, model: MODEL };
 }
- 
+
 // ---------------------------------------------------------------------------
 // 4b. 월간 신호 전용 코멘트 — "구성 · 순위" / "원자료 표" 탭 종합 세션에 쓰입니다.
 //     callClaude()와 동일한 안전장치(신호만 근거로 사용, 신호 0건이면 API 호출 생략)를
@@ -1041,29 +1060,128 @@ async function callClaudeForSignals(highlights, opts) {
   if (top.length === 0) {
     return { commentary: opts.noSignalText, model: null }; // 신호 없음 → API 호출 생략(비용 절감)
   }
- 
+
   const signalText = top.map((h, i) => `${i + 1}. ${h.text}${actionFor(h) ? ` (규칙상 권장 조치: ${actionFor(h)})` : ''}`).join('\n');
- 
+
   // periodOverride가 있으면(예: 주간 비교) 해당 문구를 그대로 쓰고, 없으면 기존 "이번 달 vs 전월" 문구를 씁니다.
   const periodPhrase = opts.periodOverride || `"이번 달(${opts.latestYm})"을 "전월(${opts.prevYm})"과`;
- 
+
   const prompt = `${opts.roleDesc}
 아래는 ${periodPhrase} 비교해 이미 규칙 기반으로 계산된 변동 신호 목록입니다.
 ${opts.extraContext ? `\n${opts.extraContext}\n` : ''}
 [감지된 신호 목록]
 ${signalText}
- 
+
 지시사항:
 - 위 신호 목록에 있는 내용만 근거로 사용하세요. 목록에 없는 원인이나 배경을 추측해서 만들어내지 마세요.
 - 여러 신호 사이에 연관성이 보이면 짚어주되, 확실하지 않으면 "확실하지 않음" 또는 "추가 확인 필요"라고 명시하세요.
 - 위에 "비교 기준" 안내가 있다면(현재 기간이 아직 진행 중이거나 일부만 집계된 경우), 감소/증가 폭을 단정적으로 "문제"라고 말하지 말고 이 점을 함께 언급하세요.
 - 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 문장 단위로 끊어 한국어로 2~4문장 이내로 작성하세요.
 - 존댓말을 사용하세요.`;
- 
+
   const commentary = await callAiProvider(prompt, 512);
   return { commentary, model: MODEL };
 }
- 
+
+// ---------------------------------------------------------------------------
+// 4c. [v11 추가] 고객여정 퍼널 — B2B사업운영팀 "여정_최종" 시트를 문의(L2)~낙찰(L5)
+//     단계로 집계합니다. 이 함수는 숫자를 "계산"만 할 뿐, AI 호출이나 추측이 전혀 없습니다
+//     (단계·처리상태 컬럼 값을 그대로 규칙 기반으로 분류).
+//
+//     분류 기준(현장+공종 단위 "케이스"별로 가장 진행된 상태 1개만 선택):
+//       1. l2_only            — 문의(L2)에서 끝남
+//       2. l3_pending         — 컨설팅/PT(L3)까지 진행, 이후 상태 불명
+//       3. l4_pending         — 공고(L4) 진행중, 결과 대기
+//       4. lost_bid_failed    — 유찰/공고취소로 수주 자체가 무산
+//       5. lost_to_competitor — 처리상태="타공법낙찰" (경쟁사/타 공법으로 낙찰)
+//       6. won                — 단계=L5 & 처리상태="완료" (POUR 낙찰 성공)
+//     ※ 주의: "타공법낙찰" 행의 '업체명'은 실제 낙찰받은 경쟁사명이 아니라 우리 쪽
+//       협력사(시공사)명입니다 — 어느 경쟁사가 낙찰받았는지는 이 시트만으로는 알 수
+//       없으므로(외부 POUR 공고문 데이터와 별도 교차 매칭 필요) 여기서는 "타사로
+//       넘어간 건수"까지만 집계합니다.
+//     ※ 업체명에 "테스트"가 포함된 행(더미 데이터)은 집계에서 제외합니다.
+// ---------------------------------------------------------------------------
+const JOURNEY_CATEGORIES = [
+  { key: 'l2_only', label: '문의(L2)에서 끝남', priority: 1 },
+  { key: 'l3_pending', label: '컨설팅/PT(L3)까지 진행 · 이후 미상', priority: 2 },
+  { key: 'l4_pending', label: '공고(L4) 진행중 · 결과 대기', priority: 3 },
+  { key: 'lost_bid_failed', label: '유찰/공고취소로 수주 무산', priority: 4 },
+  { key: 'lost_to_competitor', label: '타사(타공법)로 낙찰', priority: 5 },
+  { key: 'won', label: 'POUR 낙찰 성공', priority: 6 },
+];
+
+function classifyJourneyRow(stage, status) {
+  if (status === '타공법낙찰') return 'lost_to_competitor';
+  if (status === '유찰' || status === '공고취소') return 'lost_bid_failed';
+  if (stage === 'L5' && status === '완료') return 'won';
+  if (stage === 'L4') return 'l4_pending';
+  if (stage === 'L3') return 'l3_pending';
+  if (stage === 'L2') return 'l2_only';
+  return null;
+}
+
+function computeCustomerJourneyFunnel(journeyRows) {
+  if (!journeyRows || journeyRows.length < 2) return null;
+
+  const header = journeyRows[0];
+  const idx = name => header.indexOf(name);
+  const iApt = idx('아파트ID'), iWork = idx('공종명'), iStage = idx('단계'),
+        iStatus = idx('처리상태'), iCompany = idx('업체명');
+
+  if ([iApt, iWork, iStage, iStatus, iCompany].some(i => i < 0)) {
+    console.warn('  - ⚠ 고객여정 시트에서 예상 컬럼을 찾지 못해 건너뜁니다(시트 구조 변경 가능성).');
+    return null;
+  }
+
+  const priorityMap = {};
+  JOURNEY_CATEGORIES.forEach(c => { priorityMap[c.key] = c.priority; });
+
+  const best = new Map(); // case_key(아파트ID+공종명) -> { key, priority }
+  let testExcluded = 0;
+  let skippedNoCategory = 0;
+
+  journeyRows.slice(1).forEach(r => {
+    if (!r || r.length < 2) return;
+    const company = (r[iCompany] || '').trim();
+    if (company.includes('테스트')) { testExcluded++; return; }
+    const apt = (r[iApt] || '').trim();
+    const work = (r[iWork] || '').trim();
+    if (!apt) return;
+
+    const stage = (r[iStage] || '').trim();
+    const status = (r[iStatus] || '').trim();
+    const catKey = classifyJourneyRow(stage, status);
+    if (!catKey) { skippedNoCategory++; return; }
+
+    const caseKey = `${apt}__${work}`;
+    const p = priorityMap[catKey];
+    const existing = best.get(caseKey);
+    if (!existing || p > existing.priority) {
+      best.set(caseKey, { key: catKey, priority: p });
+    }
+  });
+
+  const counts = {};
+  JOURNEY_CATEGORIES.forEach(c => { counts[c.key] = 0; });
+  best.forEach(v => { counts[v.key] = (counts[v.key] || 0) + 1; });
+
+  const totalCases = best.size;
+  const categories = JOURNEY_CATEGORIES.map(c => ({
+    key: c.key,
+    label: c.label,
+    count: counts[c.key] || 0,
+    pct: totalCases ? Number(((counts[c.key] || 0) / totalCases * 100).toFixed(1)) : 0,
+  }));
+
+  return {
+    total_cases: totalCases,
+    total_source_rows: journeyRows.length - 1,
+    excluded_test_rows: testExcluded,
+    skipped_rows_no_category: skippedNoCategory,
+    categories,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 5. 메인 실행
 // ---------------------------------------------------------------------------
@@ -1073,17 +1191,17 @@ async function main() {
   const patentRows = parseCsv(patentCsv);
   const mainRows = parseCsv(mainCsv);
   console.log(`  - 특허매핑 ${patentRows.length - 1}행, 원본데이터 ${mainRows.length - 1}행`);
- 
+
   console.log('[2/9] 대시보드와 동일한 규칙으로 집계 중...');
   const ds = buildDatasets(patentRows, mainRows);
- 
+
   console.log('[3/9] 변동 신호(하이라이트) 계산 중...');
   const ctx = computeHighlights(ds);
   console.log(`  - 감지된 신호 ${ctx.highlights.length}건 (기준일 ${ctx.latestDate})`);
- 
+
   console.log('[4/9] Claude API로 오늘의 브리핑 코멘트 생성 중...');
   const result = await callClaude(ctx);
- 
+
   // [v9] "웹 검색 기반 대응 방안"(highlight_actions_ai, v7)은 Joe 요청으로 폐지하고
   // "경쟁사 동향"(competitor_watch_trends, v8)으로 대체했습니다 — 그날그날 바뀌는 상위
   // 3개 하이라이트보다, 지정된 5개 경쟁사의 실제 최신 동향이 더 유용하다는 피드백입니다.
@@ -1091,10 +1209,26 @@ async function main() {
   console.log('[5/9] 주요 경쟁사 5개사 최신 동향(뉴스) 생성 중...');
   const competitorWatch = await generateCompetitorWatchTrends(COMPETITOR_WATCHLIST);
   console.log(competitorWatch.length ? `  - ${competitorWatch.length}건 생성됨` : '  - 생성 안 됨(검색/AI 호출 실패)');
- 
+
+  // [v11 추가] 고객여정 퍼널 — 별도 시트/별도 실패 지점이라 나머지 파이프라인에 영향 없도록
+  // try/catch로 감쌉니다. 실패하면(시트 접근 불가 등) customer_journey_funnel은 null로 저장되고
+  // 대시보드는 이 카드만 조용히 숨깁니다.
+  console.log('[고객여정] "여정_최종" 시트에서 L2~L5 퍼널 집계 중...');
+  let journeyFunnel = null;
+  try {
+    const journeyCsv = await fetchCsv(JOURNEY_GID, JOURNEY_SHEET_ID);
+    const journeyRows = parseCsv(journeyCsv);
+    journeyFunnel = computeCustomerJourneyFunnel(journeyRows);
+    console.log(journeyFunnel
+      ? `  - 케이스 ${journeyFunnel.total_cases}건 집계됨(원본 ${journeyFunnel.total_source_rows}행, 테스트데이터 ${journeyFunnel.excluded_test_rows}행 제외)`
+      : '  - 집계 실패(시트 구조 확인 필요) — 건너뜀');
+  } catch (e) {
+    console.warn(`  - ⚠ 고객여정 시트 접근 실패(건너뜀): ${e.message}`);
+  }
+
   console.log('[6/9] 월간(전월 대비) 변동 신호 계산 중 — 구성 · 순위 / 원자료 표 탭...');
   const mctx = computeMonthlySignals(ds);
- 
+
   let compositionResult = { commentary: null, model: null };
   let rawdataResult = { commentary: null, model: null };
   if (mctx.hasEnoughData) {
@@ -1118,10 +1252,10 @@ async function main() {
   } else {
     console.log('  - 월 데이터가 2개월 미만이라 월간 비교를 건너뜁니다.');
   }
- 
+
   console.log('[8/9] 주간(최근 N주 대비) 변동 신호 계산 중 — 추세 분석 탭 (주요 대분류 · 주차별)...');
   const tctx = computeTrendWeeklySignals(ds);
- 
+
   let trendResult = { commentary: null, model: null };
   if (tctx.hasEnoughData) {
     console.log(`  - 최근 ${tctx.span}주 vs 직전 ${tctx.span}주 / 추세 신호 ${tctx.highlights.length}건`);
@@ -1138,7 +1272,7 @@ async function main() {
   } else {
     console.log('  - 주 데이터가 2주 미만이라 주간 비교를 건너뜁니다.');
   }
- 
+
   const output = {
     generated_at: new Date().toISOString(),
     model: result.model,
@@ -1151,14 +1285,19 @@ async function main() {
       action: actionFor(h),
     })),
     commentary: result.commentary,
- 
+
     // --- [v8, v9에서 강화] 주요 경쟁사 5개사(4A시스템·금영ENC·피엠씨·미래피앤씨·수퍼크랙실)의
     //     최신 동향(뉴스) — 그날의 하이라이트 상위 3건 여부와 무관하게 매일 5개사 전원 대상,
     //     Tavily topic=news + 최근 1개월 필터로 실제 최신 뉴스 위주 검색 (실패/미검색 시 빈 배열).
     //     (v7의 highlight_actions_ai/web_action_model 필드는 Joe 요청으로 v9에서 폐지되었습니다.)
     competitor_watch_trends: competitorWatch,
     competitor_watch_model: competitorWatch.length ? MODEL : null,
- 
+
+    // --- [v11 추가] 고객여정 퍼널 — "여정_최종" 시트(B2B사업운영팀 관리) 기준, 문의(L2)부터
+    //     낙찰(L5)까지 현장+공종 단위 케이스를 6개 유형으로 분류한 집계입니다. AI가 개입하지
+    //     않는 순수 규칙 기반 집계이며, 시트 접근 실패 시 null(대시보드는 카드를 숨김)입니다.
+    customer_journey_funnel: journeyFunnel,
+
     // --- 구성 · 순위 / 원자료 표 탭의 "종합" 세션용 월간(전월 대비) AI 코멘트 ---
     monthly_period: mctx.hasEnoughData ? {
       latest: mctx.latestYm, prev: mctx.prevYm,
@@ -1177,7 +1316,7 @@ async function main() {
       action: actionFor(h),
     })) : [],
     rawdata_commentary: rawdataResult.commentary,
- 
+
     // --- "추세 분석" 탭의 "종합" 세션용 주간(주요 대분류 · 최근 N주 vs 직전 N주) AI 코멘트 ---
     trend_period: tctx.hasEnoughData ? {
       span_weeks: tctx.span,
@@ -1192,12 +1331,12 @@ async function main() {
     })) : [],
     trend_commentary: trendResult.commentary,
   };
- 
+
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2), 'utf-8');
   console.log(`완료: ${OUTPUT_PATH} 저장됨`);
 }
- 
+
 // require()로 다른 스크립트(테스트 등)에서 함수만 가져다 쓸 때는 자동 실행되지 않도록,
 // 이 파일이 직접 실행된 경우에만 main()을 호출합니다.
 if (require.main === module) {
@@ -1206,12 +1345,12 @@ if (require.main === module) {
     process.exit(1);
   });
 }
- 
+
 module.exports = {
   parseCsv, normalizeCompanyName, buildDatasets, computeHighlights, ACTION_MAP, actionFor,
   josa, computeMonthlySignals, monthlyCategorySums, monthlyWorktypeSums,
   computeTrendWeeklySignals, weekMondayStr,
   extractJsonArray, generateWebInformedActions, callTavilySearch, buildSearchQueryFor,
   COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends,
+  JOURNEY_CATEGORIES, classifyJourneyRow, computeCustomerJourneyFunnel,
 };
- 
