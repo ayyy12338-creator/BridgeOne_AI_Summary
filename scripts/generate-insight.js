@@ -93,6 +93,17 @@
  * 지어내지 않도록 했습니다. (브랜드별 분류는 "여정_최종" 시트에 브랜드 컬럼이 없어 이번에는
  * 제외했습니다 — 필요하시면 "기술자문문의" 시트와 별도 매칭이 필요합니다.)
  *
+ * [v13 추가 — 2026-08-12] Joe 요청("전년도와 비교할 수 있는 것도 필요해") — 라이브 공고문
+ * 시트(SHEET_ID)는 2025-12-19부터 시작해 그 자체로는 전년 비교가 불가능함을 확인하고
+ * Joe에게 알렸더니, "25년 전체 및 POUR 공법 공고문 현황.xlsx"를 업로드해주셨습니다. 그
+ * 파일을 라이브 데이터와 동일한 규칙으로 일자별 집계해 data/reference-2025-daily.json에
+ * 정적으로 저장하고(2025-01~12월 커버, 6,272행), "이번 달 vs 작년 같은 달"을 기존
+ * "이번달 vs 전월" 로직과 동일한 유틸(day-cap 등)로 비교해 yoy_highlights/yoy_commentary로
+ * 저장합니다. 참고 데이터는 GitHub Actions가 매일 다시 만드는 게 아니라 한 번 고정된
+ * 값입니다 — 나중에 2026년이 지나 더 최근 "작년" 데이터가 필요해지면 이 파일을 교체해야
+ * 합니다. 업체별(경쟁사) 전년 비교는 참고 파일의 특허번호 컬럼 구조가 달라 이번에는
+ * 포함하지 않았습니다(구분·공종 단위만 지원).
+ *
  * 필요 환경변수: AI_PROVIDER=claude 인 경우 ANTHROPIC_API_KEY,
  *              AI_PROVIDER=gemini 인 경우 GEMINI_API_KEY (둘 다 GitHub Repository Secret으로 등록)
  *              TAVILY_API_KEY — "웹 검색 기반 대응 방안"(v7) 기능에 필요. tavily.com에서
@@ -707,6 +718,126 @@ function computeMonthlySignals(ds) {
     pourShareLatest, pourSharePrev: pourSharePrevM,
     latestMonthComplete, comparisonNote,
     compositionHighlights, rawdataHighlights,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3b. [v13 추가] 전년동월 비교 — Joe 요청("전년도와 비교할 수 있는 것도 필요해").
+//
+//     라이브 시트(SHEET_ID)는 2025-12-19부터 시작해 2025년 데이터가 없어, 있는 데이터만으로는
+//     전년 비교가 불가능합니다. Joe가 2026-08-12에 "25년 전체 및 POUR 공법 공고문 현황.xlsx"를
+//     업로드해주셔서, 그 파일의 '25년 전체 공고문' 시트(6,277행, 2025-01-02~2025-12-31)를
+//     라이브 데이터와 동일한 규칙(RAW_CATS/MAIN_CATS/METHOD_TYPE_COLS)으로 일자별 집계해
+//     data/reference-2025-daily.json에 정적으로 저장해뒀습니다. 이 파일은 GitHub Actions가
+//     매일 다시 만드는 게 아니라 한 번 고정된 참고 데이터입니다(2025년은 더 이상 바뀌지
+//     않으므로) — 나중에 Joe가 더 오래된 데이터를 주시면 이 파일만 교체하면 됩니다.
+//
+//     비교 로직은 기존 "이번 달 vs 전월"(computeMonthlySignals)과 동일한 유틸
+//     (sumFieldsForMonth, 월초 착시 방지용 day-cap)을 그대로 재사용해 "이번 달 vs 작년 같은
+//     달"을 계산합니다. 업체별(경쟁사) 비교는 2025년 참고 파일의 특허번호 컬럼 구조가 달라
+//     (특허번호2~15로 확장) 별도 매핑 작업이 필요해 이번에는 포함하지 않았습니다 — 구분(POUR/
+//     다특허/DO/CNC/일반/타사)·공종(옥상방수·재도장·주차장·도로·기타·미분류) 단위만 지원합니다.
+// ---------------------------------------------------------------------------
+function loadReference2025() {
+  try {
+    const refPath = path.join(__dirname, '..', 'data', 'reference-2025-daily.json');
+    const raw = fs.readFileSync(refPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const catDaily = {}, worktypeDaily = {};
+    Object.entries(parsed.daily || {}).forEach(([date, rec]) => {
+      catDaily[date] = {
+        POUR: rec.POUR || 0, 다특허: rec.다특허 || 0, DO: rec.DO || 0,
+        CNC: rec.CNC || 0, 일반: rec.일반 || 0, 타사: rec.타사 || 0, total: rec.total || 0,
+      };
+      worktypeDaily[date] = rec.worktypes || {};
+    });
+    return { catDaily, worktypeDaily, source: parsed.source || null };
+  } catch (e) {
+    console.warn(`  - ⚠ 2025년 참고 데이터(data/reference-2025-daily.json) 로드 실패(건너뜀): ${e.message}`);
+    return null;
+  }
+}
+
+function computeYoySignals(ds, ref) {
+  if (!ref) return { hasEnoughData: false, highlights: [] };
+  const { dailyMap, worktypeDailyMap, DATA } = ds;
+  if (!DATA.date_max) return { hasEnoughData: false, highlights: [] };
+
+  const latestYm = monthKey(DATA.date_max);
+  const [y, m] = latestYm.split('-').map(Number);
+  const yoyYm = `${y - 1}-${String(m).padStart(2, '0')}`;
+
+  const hasYoyMonth = Object.keys(ref.catDaily).some(d => d.startsWith(yoyYm));
+  if (!hasYoyMonth) {
+    return { hasEnoughData: false, highlights: [], latestYm, yoyYm, noDataReason: `참고 데이터에 ${yoyYm} 데이터가 없습니다.` };
+  }
+
+  const latestDay = Number(DATA.date_max.slice(8, 10));
+  const latestMonthComplete = latestDay >= daysInMonth(latestYm);
+  const yoyDayCap = latestMonthComplete ? null : Math.min(latestDay, daysInMonth(yoyYm));
+  const periodLabel = latestMonthComplete ? `작년 같은 달(${yoyYm})` : `작년 같은 기간(${yoyYm} 1~${yoyDayCap}일)`;
+  const comparisonNote = latestMonthComplete
+    ? null
+    : `이번 달(${latestYm})은 ${latestDay}일까지만 집계된 상태라, 공정한 비교를 위해 작년 같은 달(${yoyYm})도 1~${yoyDayCap}일 데이터만 사용해 비교했습니다. 이번 달이 아직 끝나지 않았다는 점을 감안해 해석해주세요.`;
+
+  const CAT_FIELDS = MAIN_CATS.concat('total');
+  const latestCat = sumFieldsForMonth(dailyMap, latestYm, null, CAT_FIELDS);
+  const yoyCat = sumFieldsForMonth(ref.catDaily, yoyYm, yoyDayCap, CAT_FIELDS);
+
+  const highlights = [];
+
+  if (yoyCat.total >= MONTHLY_MIN_BASE) {
+    const pct = (latestCat.total - yoyCat.total) / yoyCat.total * 100;
+    if (Math.abs(pct) >= MONTHLY_THRESH_PCT) {
+      highlights.push({
+        text: `전체 공고 건수가 ${periodLabel} ${yoyCat.total}건 → 이번 달(${latestYm}) ${latestCat.total}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`,
+        score: Math.abs(pct), type: 'yoy_total', direction: pct > 0 ? 'up' : 'down', subject: null, pct,
+      });
+    }
+  }
+
+  MAIN_CATS.forEach(cat => {
+    const r = latestCat[cat] || 0, p = yoyCat[cat] || 0;
+    if (p < MONTHLY_MIN_BASE) return;
+    const pct = (r - p) / p * 100;
+    if (Math.abs(pct) >= MONTHLY_THRESH_PCT) {
+      highlights.push({
+        text: `${cat} 구분 공고가 ${periodLabel} ${p}건 → 이번 달 ${r}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`,
+        score: Math.abs(pct), type: 'yoy_category', subject: cat, direction: pct > 0 ? 'up' : 'down', pct,
+      });
+    }
+  });
+
+  const pourShareLatest = latestCat.total ? (latestCat['POUR'] || 0) / latestCat.total * 100 : 0;
+  const pourShareYoy = yoyCat.total ? (yoyCat['POUR'] || 0) / yoyCat.total * 100 : 0;
+  const shareDiff = pourShareLatest - pourShareYoy;
+  if (yoyCat.total >= MONTHLY_MIN_BASE && Math.abs(shareDiff) >= 3) {
+    highlights.push({
+      text: `전체 공고 중 POUR 비중이 ${periodLabel} ${pourShareYoy.toFixed(1)}% → 이번 달 ${pourShareLatest.toFixed(1)}%로 ${shareDiff > 0 ? '▲' : '▼'}${Math.abs(shareDiff).toFixed(1)}%p ${shareDiff > 0 ? '상승' : '하락'}했습니다.`,
+      score: Math.abs(shareDiff) * 8, type: 'yoy_pour_share', direction: shareDiff > 0 ? 'up' : 'down', subject: null, magnitude: shareDiff,
+    });
+  }
+
+  const latestWt = sumFieldsForMonth(worktypeDailyMap, latestYm, null, TREND_WORKTYPES);
+  const yoyWt = sumFieldsForMonth(ref.worktypeDaily, yoyYm, yoyDayCap, TREND_WORKTYPES);
+  TREND_WORKTYPES.forEach(type => {
+    const r = latestWt[type] || 0, p = yoyWt[type] || 0;
+    if (p < MONTHLY_MIN_BASE) return;
+    const pct = (r - p) / p * 100;
+    if (Math.abs(pct) >= MONTHLY_THRESH_PCT) {
+      highlights.push({
+        text: `${type} 공종이 ${periodLabel} ${p}건 → 이번 달 ${r}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`,
+        score: Math.abs(pct), type: 'yoy_worktype', subject: type, direction: pct > 0 ? 'up' : 'down', pct,
+      });
+    }
+  });
+
+  highlights.sort((a, b) => b.score - a.score);
+
+  return {
+    hasEnoughData: true, latestYm, yoyYm, comparisonNote,
+    latestTotal: latestCat.total, yoyTotal: yoyCat.total,
+    highlights,
   };
 }
 
@@ -1424,6 +1555,27 @@ async function main() {
     console.log('  - 월 데이터가 2개월 미만이라 월간 비교를 건너뜁니다.');
   }
 
+  // [v13 추가] 전년동월 비교 — 2025년 정적 참고 데이터(data/reference-2025-daily.json)가 있을
+  // 때만 계산합니다(파일이 없거나 작년 같은 달 데이터가 없으면 조용히 건너뜀).
+  console.log('[전년비교] 이번 달 vs 작년 같은 달 비교 중...');
+  const ref2025 = loadReference2025();
+  const yctx = computeYoySignals(ds, ref2025);
+  let yoyResult = { commentary: null, model: null };
+  if (yctx.hasEnoughData) {
+    console.log(`  - 이번 달 ${yctx.latestYm} vs 작년 같은 달 ${yctx.yoyYm} / 신호 ${yctx.highlights.length}건`);
+    if (yctx.comparisonNote) console.log(`  - ⚠ ${yctx.comparisonNote}`);
+    yoyResult = await callClaudeForSignals(yctx.highlights, {
+      latestYm: yctx.latestYm,
+      prevYm: yctx.yoyYm,
+      roleDesc: '당신은 건설 특허공법(POUR) 시장의 공고문 데이터를 분석해, "작년 같은 기간 대비" 관점에서 실무진에게 보고하는 애널리스트입니다.',
+      noSignalText: '작년 같은 달 대비 뚜렷한 변동 신호가 감지되지 않았습니다. 특이사항 없이 안정적인 흐름입니다.',
+      extraContext: yctx.comparisonNote ? `※ 비교 기준: ${yctx.comparisonNote}` : null,
+      periodOverride: `"이번 달(${yctx.latestYm})"을 "작년 같은 달(${yctx.yoyYm})"과`,
+    });
+  } else {
+    console.log(`  - 건너뜀 (${yctx.noDataReason || '참고 데이터 없음'})`);
+  }
+
   console.log('[8/9] 주간(최근 N주 대비) 변동 신호 계산 중 — 추세 분석 탭 (주요 대분류 · 주차별)...');
   const tctx = computeTrendWeeklySignals(ds);
 
@@ -1493,6 +1645,21 @@ async function main() {
     })) : [],
     rawdata_commentary: rawdataResult.commentary,
 
+    // --- [v13 추가] 전년동월(이번 달 vs 작년 같은 달) 비교 — data/reference-2025-daily.json
+    //     (정적 참고 데이터, 2025-01~12월 커버)이 있을 때만 채워지고, 없으면 전부 null/[]
+    //     입니다. 구분(POUR/다특허/DO/CNC/일반/타사)·공종 단위만 지원하며 업체별 비교는
+    //     이번에는 포함하지 않았습니다.
+    yoy_period: yctx.hasEnoughData ? {
+      latest: yctx.latestYm, yoy: yctx.yoyYm,
+      comparison_note: yctx.comparisonNote,
+    } : null,
+    yoy_model: yoyResult.model,
+    yoy_highlights: yctx.hasEnoughData ? yctx.highlights.slice(0, 8).map(h => ({
+      text: h.text, type: h.type, direction: h.direction, subject: h.subject || null,
+      action: actionFor(h),
+    })) : [],
+    yoy_commentary: yoyResult.commentary,
+
     // --- "추세 분석" 탭의 "종합" 세션용 주간(주요 대분류 · 최근 N주 vs 직전 N주) AI 코멘트 ---
     trend_period: tctx.hasEnoughData ? {
       span_weeks: tctx.span,
@@ -1531,4 +1698,5 @@ module.exports = {
   JOURNEY_CATEGORIES, classifyJourneyRow, computeCustomerJourneyFunnel,
   normalizeJourneyRegion, primaryJourneyWorktype, buildJourneyFunnelHighlightLines,
   callClaudeForJourneyFunnel,
+  loadReference2025, computeYoySignals,
 };
