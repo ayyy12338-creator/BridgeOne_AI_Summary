@@ -751,7 +751,11 @@ function loadReference2025() {
       };
       worktypeDaily[date] = rec.worktypes || {};
     });
-    return { catDaily, worktypeDaily, source: parsed.source || null };
+    // [v14 추가] 업체별 재식별 데이터(company_daily) — 2025년 "특허(N)" 시트(특허번호→업체명
+    // 매핑표)로 타사 공고를 업체별로 재식별한 정적 데이터. 구버전 참고 파일(이 필드가 없는
+    // 파일)이면 null로 두고, 업체별 예상 점유율 계산만 건너뜁니다(나머지는 그대로 동작).
+    const companyDaily = parsed.company_daily || null;
+    return { catDaily, worktypeDaily, companyDaily, source: parsed.source || null };
   } catch (e) {
     console.warn(`  - ⚠ 2025년 참고 데이터(data/reference-2025-daily.json) 로드 실패(건너뜀): ${e.message}`);
     return null;
@@ -839,6 +843,286 @@ function computeYoySignals(ds, ref) {
     latestTotal: latestCat.total, yoyTotal: yoyCat.total,
     highlights,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 3c. [v14 추가 — 2026-08-12] 예상 결과(간단 추정) — Joe 요청("혹시 예상 되는 결과 도출도
+//     가능하니" → 확인 결과 3가지: (1) 이번 달/올해 남은 기간 예상 공고 건수, (2) 업체별·
+//     공종별 예상 점유율 변화, (3) 고객여정 퍼널 예상 낙찰 건수).
+//     ⚠ 셋 다 "과거 패턴을 그대로 미래에 연장"하는 단순 추정이며 통계적 예측 모델이
+//     아닙니다. safety_protocol(임의로 추측·단정하지 않음)에 따라 방법론을 결과에 그대로
+//     남기고, AI 코멘트에도 "추정치"라는 점과 표본 크기를 항상 함께 언급하도록 지시합니다.
+// ---------------------------------------------------------------------------
+
+// dailyRecords(date -> {field: count} 형태, dailyMap/worktypeDailyMap/COMPANY_DAILY(2026)와
+// ref.catDaily/worktypeDaily/companyDaily(2025) 모두 동일 구조)에서 특정 연도의
+// 1/1 ~ endYm(해당 연도)/endDay까지 누적 합산합니다("연초부터 지금까지" 비교용).
+function sumFieldsForYtd(dailyRecords, year, endYm, endDay, fields) {
+  const out = {};
+  fields.forEach(f => { out[f] = 0; });
+  Object.keys(dailyRecords).forEach(date => {
+    if (!date.startsWith(String(year))) return;
+    const ym = date.slice(0, 7);
+    if (ym > endYm) return;
+    if (ym === endYm) {
+      const day = Number(date.slice(8, 10));
+      if (day > endDay) return;
+    }
+    const rec = dailyRecords[date];
+    fields.forEach(f => { out[f] += (rec[f] || 0); });
+  });
+  return out;
+}
+
+// [1] 이번 달 / 올해 남은 기간 예상 공고 건수
+//  - 이번 달: 2025년 같은 달의 "1일~오늘까지 누적 비중"으로 역산합니다(월내 쏠림 반영 —
+//    예: 작년 이 달이 11일까지 전체의 60%가 나왔다면, 올해도 비슷하게 쏠렸을 것으로 보고
+//    올해 11일까지 실적을 0.6으로 나눠 월말 예상치를 구함). 2025년 같은 달 데이터가 없으면
+//    단순 일할계산(경과일 ÷ 이번달 총일수)으로 대체합니다.
+//  - 남은 달(다음 달~12월): 이미 끝난 2026년 각 달의 "전년 동월 대비 증감률" 평균을 구해,
+//    아직 오지 않은 달의 2025년 실적에 그대로 곱해 추정합니다.
+function computeMonthlyForecast(ds, ref) {
+  const { dailyMap, DATA } = ds;
+  if (!DATA.date_max) return null;
+  const latestYm = monthKey(DATA.date_max);
+  const [y, m] = latestYm.split('-').map(Number);
+  const latestDay = Number(DATA.date_max.slice(8, 10));
+  const totalDaysThisMonth = daysInMonth(latestYm);
+  const isMonthComplete = latestDay >= totalDaysThisMonth;
+
+  const CAT_FIELDS = MAIN_CATS.concat('total');
+  const soFarThisMonth = sumFieldsForMonth(dailyMap, latestYm, null, CAT_FIELDS);
+
+  let thisMonthForecast = null;
+  let thisMonthMethod = null;
+  if (isMonthComplete) {
+    thisMonthForecast = soFarThisMonth;
+    thisMonthMethod = 'actual'; // 이미 끝난 달 — 예측이 아니라 실측치
+  } else if (ref) {
+    const yoyYm = `${y - 1}-${String(m).padStart(2, '0')}`;
+    const yoyDayCap = sumFieldsForMonth(ref.catDaily, yoyYm, latestDay, CAT_FIELDS);
+    const yoyFullMonth = sumFieldsForMonth(ref.catDaily, yoyYm, null, CAT_FIELDS);
+    if (yoyFullMonth.total > 0 && yoyDayCap.total > 0) {
+      const prop = yoyDayCap.total / yoyFullMonth.total;
+      thisMonthForecast = {};
+      CAT_FIELDS.forEach(f => { thisMonthForecast[f] = Math.round(soFarThisMonth[f] / prop); });
+      thisMonthMethod = 'yoy_day_pattern';
+    }
+  }
+  if (!thisMonthForecast && !isMonthComplete) {
+    const prop = latestDay / totalDaysThisMonth; // 2025년 참고 데이터가 없을 때의 대체 방법
+    thisMonthForecast = {};
+    CAT_FIELDS.forEach(f => { thisMonthForecast[f] = Math.round(soFarThisMonth[f] / prop); });
+    thisMonthMethod = 'flat_runrate';
+  }
+  // 참고용 하한선 — "yoy_day_pattern"은 작년 단 1개년치 월내 분포 하나에만 의존하는 값이라,
+  // 그 달이 우연히 월말에 쏠린 달이었다면 예상치가 크게 부풀 수 있습니다(2025-08 실제 사례:
+  // 11일까지 25.6%만 발생 → 예상치가 실적의 약 3.9배). 항상 단순 일할계산(run-rate)도 함께
+  // 계산해 두 값 사이를 "범위"로 보여줘, 하나의 숫자만 보고 과신하지 않도록 합니다.
+  let thisMonthForecastRunrate = null;
+  if (!isMonthComplete) {
+    const flatProp = latestDay / totalDaysThisMonth;
+    thisMonthForecastRunrate = {};
+    CAT_FIELDS.forEach(f => { thisMonthForecastRunrate[f] = Math.round(soFarThisMonth[f] / flatProp); });
+  }
+
+  let restOfYearForecastTotal = null;
+  let restOfYearMonths = [];
+  let avgGrowthPct = null;
+  let growthSampleMonths = 0;
+  if (ref) {
+    const completedMonths = [];
+    for (let mi = 1; mi < m; mi++) {
+      const ym2026 = `${y}-${String(mi).padStart(2, '0')}`;
+      if (!Object.keys(dailyMap).some(d => d.startsWith(ym2026))) continue; // 이 달 데이터 자체가 없으면 제외
+      const ym2025 = `${y - 1}-${String(mi).padStart(2, '0')}`;
+      const actual2026 = sumFieldsForMonth(dailyMap, ym2026, null, ['total']).total;
+      const actual2025 = sumFieldsForMonth(ref.catDaily, ym2025, null, ['total']).total;
+      if (actual2025 >= MONTHLY_MIN_BASE) {
+        completedMonths.push({ ym2026, actual2026, actual2025, growth: (actual2026 - actual2025) / actual2025 });
+      }
+    }
+    growthSampleMonths = completedMonths.length;
+    if (completedMonths.length > 0) {
+      avgGrowthPct = completedMonths.reduce((s, x) => s + x.growth, 0) / completedMonths.length * 100;
+      const growthRatio = 1 + avgGrowthPct / 100;
+      let sumRest = 0;
+      for (let mi = m + 1; mi <= 12; mi++) {
+        const ym2025 = `${y - 1}-${String(mi).padStart(2, '0')}`;
+        const actual2025 = sumFieldsForMonth(ref.catDaily, ym2025, null, ['total']).total;
+        if (actual2025 > 0) {
+          const forecastM = Math.round(actual2025 * growthRatio);
+          restOfYearMonths.push({ ym: `${y}-${String(mi).padStart(2, '0')}`, forecast: forecastM });
+          sumRest += forecastM;
+        }
+      }
+      restOfYearForecastTotal = sumRest;
+    }
+  }
+
+  let yearTotalForecast = null;
+  if (thisMonthForecast && (m === 12 || restOfYearForecastTotal != null)) {
+    let elapsedActual = 0;
+    for (let mi = 1; mi < m; mi++) {
+      const ym2026 = `${y}-${String(mi).padStart(2, '0')}`;
+      elapsedActual += sumFieldsForMonth(dailyMap, ym2026, null, ['total']).total;
+    }
+    yearTotalForecast = elapsedActual + thisMonthForecast.total + (restOfYearForecastTotal || 0);
+  }
+
+  return {
+    latestYm, latestDay, totalDaysThisMonth, isMonthComplete,
+    soFarThisMonth, thisMonthForecast, thisMonthMethod, thisMonthForecastRunrate,
+    avgGrowthPct: avgGrowthPct != null ? Number(avgGrowthPct.toFixed(1)) : null,
+    growthSampleMonths,
+    restOfYearForecastTotal, restOfYearMonths,
+    yearTotalForecast,
+  };
+}
+
+// [2] 업체별/공종별 예상 점유율 변화 — "연초(1/1)~오늘"과 "작년 같은 기간(1/1~같은 월/일)"의
+// 점유율(구성비)을 비교해 변화 방향(%p)을 구하고, 그 변화 속도가 남은 기간에도 그대로
+// 이어진다고 가정할 때의 연말 예상 점유율을 선형으로 추정합니다. 표본이 작은 항목·변화폭이
+// 1%p 미만인 항목은 우연/노이즈에 가까워 제외합니다.
+const SHARE_FORECAST_MIN_BASE = 20; // 비교 대상 그룹(구분/공종/업체) 합계가 이보다 작으면 그룹 전체를 건너뜀
+const SHARE_FORECAST_MIN_FIELD = 5; // 개별 항목 합계가 두 기간 모두 이보다 작으면 그 항목만 제외
+function computeShareForecastGroup(cur2026Dict, ref2025Dict, fields, latestYm, latestDay, groupLabel) {
+  const y = Number(latestYm.slice(0, 4));
+  const yoyYm = `${y - 1}-${latestYm.slice(5, 7)}`;
+  const cur = sumFieldsForYtd(cur2026Dict, y, latestYm, latestDay, fields);
+  const past = sumFieldsForYtd(ref2025Dict, y - 1, yoyYm, latestDay, fields);
+  const curTotal = fields.reduce((s, f) => s + cur[f], 0);
+  const pastTotal = fields.reduce((s, f) => s + past[f], 0);
+  if (curTotal < SHARE_FORECAST_MIN_BASE || pastTotal < SHARE_FORECAST_MIN_BASE) return [];
+
+  function dayOfYear(ym, day) {
+    const mm = Number(ym.slice(5, 7));
+    let doy = day;
+    for (let i = 1; i < mm; i++) doy += daysInMonth(`${ym.slice(0, 4)}-${String(i).padStart(2, '0')}`);
+    return doy;
+  }
+  const elapsed = dayOfYear(latestYm, latestDay) / 365;
+  const remaining = 1 - elapsed;
+
+  const rows = [];
+  fields.forEach(f => {
+    if ((past[f] || 0) < SHARE_FORECAST_MIN_FIELD && (cur[f] || 0) < SHARE_FORECAST_MIN_FIELD) return;
+    const shareCur = curTotal ? cur[f] / curTotal * 100 : 0;
+    const sharePast = pastTotal ? past[f] / pastTotal * 100 : 0;
+    const diff = shareCur - sharePast;
+    if (Math.abs(diff) < 1) return; // 1%p 미만 변화는 노이즈로 보고 제외
+    const projectedRaw = elapsed > 0 ? shareCur + diff * (remaining / elapsed) : shareCur;
+    const projected = Math.max(0, Math.min(100, projectedRaw));
+    rows.push({
+      group: groupLabel, field: f,
+      share_now: Number(shareCur.toFixed(1)),
+      share_year_ago: Number(sharePast.toFixed(1)),
+      diff_pct_point: Number(diff.toFixed(1)),
+      projected_year_end_share: Number(projected.toFixed(1)),
+      base_now: cur[f], base_year_ago: past[f],
+    });
+  });
+  rows.sort((a, b) => Math.abs(b.diff_pct_point) - Math.abs(a.diff_pct_point));
+  return rows.slice(0, 6);
+}
+
+function computeShareForecast(ds, ref) {
+  if (!ref || !ds.DATA.date_max) return { hasEnoughData: false, rows: [] };
+  const latestYm = monthKey(ds.DATA.date_max);
+  const latestDay = Number(ds.DATA.date_max.slice(8, 10));
+  const rows = [];
+  rows.push(...computeShareForecastGroup(ds.dailyMap, ref.catDaily, MAIN_CATS, latestYm, latestDay, '구분'));
+  rows.push(...computeShareForecastGroup(ds.worktypeDailyMap, ref.worktypeDaily, TREND_WORKTYPES, latestYm, latestDay, '공종'));
+  if (ref.companyDaily) {
+    rows.push(...computeShareForecastGroup(ds.COMPANY_DAILY, ref.companyDaily, ds.COMPANY_NAMES, latestYm, latestDay, '업체'));
+  }
+  return { hasEnoughData: rows.length > 0, latestYm, latestDay, rows };
+}
+
+// [3] 고객여정 퍼널 예상 낙찰 건수 — "공고(L4) 진행중·결과 대기"(l4_pending) 건에, 이미
+// 결과가 난 케이스(낙찰/타사낙찰/유찰)의 과거 비율을 그대로 적용해 앞으로 추가로 발생할
+// 것으로 예상되는 낙찰 건수를 추정합니다. l3_pending(컨설팅 이후 미상)은 이미 사실상
+// 이탈로 취급하고 있어(JOURNEY_DROPOUT_KEYS) 여기서도 "진행중인 파이프라인"에 포함하지
+// 않습니다.
+const JOURNEY_WIN_FORECAST_MIN_SAMPLE = 10; // 결과가 이미 난 건(closedTotal)이 이보다 적으면 비율 추정 생략
+function computeJourneyWinForecast(jf) {
+  if (!jf) return null;
+  const byKey = {};
+  jf.categories.forEach(c => { byKey[c.key] = c.count; });
+  const won = byKey.won || 0;
+  const lostToCompetitor = byKey.lost_to_competitor || 0;
+  const lostBidFailed = byKey.lost_bid_failed || 0;
+  const l4Pending = byKey.l4_pending || 0;
+  const closedTotal = won + lostToCompetitor + lostBidFailed;
+
+  if (closedTotal < JOURNEY_WIN_FORECAST_MIN_SAMPLE) {
+    return { hasEnoughData: false, closedTotal, l4Pending, won, lostToCompetitor, lostBidFailed };
+  }
+  const winRate = won / closedTotal;
+  const lossRate = lostToCompetitor / closedTotal;
+  const expectedAdditionalWins = Math.round(l4Pending * winRate);
+  const expectedAdditionalLosses = Math.round(l4Pending * lossRate);
+  const expectedAdditionalBidFail = Math.max(0, l4Pending - expectedAdditionalWins - expectedAdditionalLosses);
+
+  return {
+    hasEnoughData: true,
+    closedTotal, l4Pending, won, lostToCompetitor, lostBidFailed,
+    win_rate_pct: Number((winRate * 100).toFixed(1)),
+    expected_additional_wins: expectedAdditionalWins,
+    expected_additional_losses: expectedAdditionalLosses,
+    expected_additional_bid_fail: expectedAdditionalBidFail,
+    expected_total_wins: won + expectedAdditionalWins,
+  };
+}
+
+// 위 [1][2][3]에서 계산된 숫자만으로 AI에게 넘길 "이미 계산된 예상치" 문장 목록을 만듭니다.
+// (문자열 포맷팅만 할 뿐 AI를 호출하지 않습니다 — 다른 카드들과 동일한 안전장치.)
+function buildForecastHighlightLines(monthlyFc, shareFc, journeyFc) {
+  const lines = [];
+  if (monthlyFc && monthlyFc.thisMonthForecast && !monthlyFc.isMonthComplete) {
+    const methodLabel = { yoy_day_pattern: '작년 같은 달의 날짜별 누적 패턴', flat_runrate: '단순 일할계산' }[monthlyFc.thisMonthMethod] || '';
+    const rr = monthlyFc.thisMonthForecastRunrate;
+    const yp = monthlyFc.thisMonthMethod === 'yoy_day_pattern' ? monthlyFc.thisMonthForecast.total : null;
+    if (yp != null && rr && Math.abs(yp - rr.total) / Math.max(1, rr.total) > 0.2) {
+      // 두 방법 값이 20% 이상 차이나면 하나의 숫자로 단정하지 않고 범위로 제시(작년 1개년치
+      // 월내 분포에만 의존하는 값은 그 달이 우연히 쏠렸으면 과대·과소 추정될 수 있음).
+      const lo = Math.min(yp, rr.total), hi = Math.max(yp, rr.total);
+      lines.push(`이번 달(${monthlyFc.latestYm}) 전체 공고 건수는 ${monthlyFc.latestDay}일까지 ${monthlyFc.soFarThisMonth.total}건 집계됐습니다. 단순 일할계산으로는 약 ${rr.total}건, ${methodLabel} 기준으로는 약 ${yp}건으로 추정 방법에 따라 차이가 커서(작년 데이터 1개년치에만 의존), 월말까지 대략 ${lo}~${hi}건 사이로 추정됩니다(추정치, 범위로 해석 필요).`);
+    } else {
+      lines.push(`이번 달(${monthlyFc.latestYm}) 전체 공고 건수는 ${monthlyFc.latestDay}일까지 ${monthlyFc.soFarThisMonth.total}건 집계됐고, ${methodLabel} 기준으로 월말까지 약 ${monthlyFc.thisMonthForecast.total}건이 될 것으로 추정됩니다(추정치).`);
+    }
+  }
+  if (monthlyFc && monthlyFc.yearTotalForecast != null) {
+    lines.push(`2026년 전체로는(이미 지난 달 실측 + 이번 달·남은 달 추정 합산) 약 ${monthlyFc.yearTotalForecast}건이 될 것으로 추정됩니다(전년동월 대비 평균 ${monthlyFc.avgGrowthPct > 0 ? '+' : ''}${monthlyFc.avgGrowthPct}% 성장 추세를 남은 달에 그대로 적용, 비교 가능한 달 ${monthlyFc.growthSampleMonths}개월 기준 — 추정치).`);
+  }
+  (shareFc && shareFc.rows || []).forEach(r => {
+    lines.push(`${r.group} "${r.field}"의 점유율은 작년 같은 기간 ${r.share_year_ago}% → 올해 현재 ${r.share_now}%로 ${r.diff_pct_point > 0 ? '▲' : '▼'}${Math.abs(r.diff_pct_point)}%p 변화했고, 이 추세가 이어진다면 연말엔 약 ${r.projected_year_end_share}%가 될 것으로 추정됩니다(선형 추세 가정 — 추정치, 표본 올해 ${r.base_now}건/작년 ${r.base_year_ago}건).`);
+  });
+  if (journeyFc && journeyFc.hasEnoughData) {
+    lines.push(`고객여정 퍼널에서 현재 공고(L4) 진행중·결과 대기 중인 ${journeyFc.l4Pending}건 중, 과거 낙찰률(${journeyFc.win_rate_pct}%, 결과가 이미 난 ${journeyFc.closedTotal}건 기준)을 그대로 적용하면 약 ${journeyFc.expected_additional_wins}건이 추가로 POUR 낙찰될 것으로 예상됩니다(현재 누적 낙찰 ${journeyFc.won}건 + 예상 추가 ${journeyFc.expected_additional_wins}건 = 예상 총 ${journeyFc.expected_total_wins}건 — 추정치).`);
+  } else if (journeyFc && !journeyFc.hasEnoughData) {
+    lines.push(`고객여정 퍼널은 결과가 이미 난 케이스(${journeyFc.closedTotal}건)가 ${JOURNEY_WIN_FORECAST_MIN_SAMPLE}건 미만이라 낙찰률 기반 예상치를 산출하지 않았습니다.`);
+  }
+  return lines;
+}
+
+async function callClaudeForForecast(lines) {
+  if (!lines || lines.length === 0) return { commentary: null, model: null };
+  const signalText = lines.map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const prompt = `당신은 건설 특허공법(POUR) 영업 데이터를 바탕으로 "앞으로 예상되는 결과"를 실무진에게 보고하는 애널리스트입니다.
+아래는 이미 규칙 기반으로 계산된 예상치(추정치) 목록입니다. 각 항목엔 어떤 방법으로 추정했는지도 함께 적혀 있습니다.
+
+[계산된 예상치 목록]
+${signalText}
+
+지시사항:
+- 위 목록에 있는 수치와 방법론만 그대로 사용하세요. 목록에 없는 새로운 예상치나 원인을 지어내지 마세요.
+- 이 수치들은 모두 "과거 패턴을 그대로 미래에 적용한 단순 추정치"이며 통계적 예측 모델이 아닙니다. 실제와 다를 수 있다는 점을 반드시 언급하세요.
+- 표본이 적은(옆에 적힌 "건" 수가 작은) 항목은 신뢰도가 낮다는 점도 함께 짚어주세요.
+- 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 문장 단위로 끊어 한국어로 3~5문장 이내로 작성하세요.
+- 존댓말을 사용하세요.`;
+  const commentary = await callAiProvider(prompt, 640);
+  return { commentary, model: MODEL };
 }
 
 // ---------------------------------------------------------------------------
@@ -1576,6 +1860,23 @@ async function main() {
     console.log(`  - 건너뜀 (${yctx.noDataReason || '참고 데이터 없음'})`);
   }
 
+  // [v14 추가] 예상 결과(간단 추정) — Joe 요청("혹시 예상 되는 결과 도출도 가능하니")
+  console.log('[예상치] 이번 달/올해 남은 기간 예상 공고 건수, 업체·공종별 예상 점유율, 고객여정 예상 낙찰 계산 중...');
+  const monthlyForecast = computeMonthlyForecast(ds, ref2025);
+  const shareForecast = computeShareForecast(ds, ref2025);
+  const journeyWinForecast = computeJourneyWinForecast(journeyFunnel);
+  const forecastLines = buildForecastHighlightLines(monthlyForecast, shareForecast, journeyWinForecast);
+  let forecastResult = { commentary: null, model: null };
+  if (forecastLines.length) {
+    if (monthlyForecast && monthlyForecast.thisMonthForecast) console.log(`  - 이번 달(${monthlyForecast.latestYm}) 예상 ${monthlyForecast.thisMonthForecast.total}건(${monthlyForecast.thisMonthMethod})`);
+    if (shareForecast.hasEnoughData) console.log(`  - 점유율 변화 신호 ${shareForecast.rows.length}건`);
+    if (journeyWinForecast && journeyWinForecast.hasEnoughData) console.log(`  - 고객여정 예상 추가 낙찰 ${journeyWinForecast.expected_additional_wins}건(진행중 ${journeyWinForecast.l4Pending}건 기준)`);
+    forecastResult = await callClaudeForForecast(forecastLines);
+    console.log(`  - 예상 항목 ${forecastLines.length}건, 코멘트 ${forecastResult.commentary ? '생성됨' : '생성 안 됨'}`);
+  } else {
+    console.log('  - 계산된 예상치가 없어(데이터 부족) 건너뜀');
+  }
+
   console.log('[8/9] 주간(최근 N주 대비) 변동 신호 계산 중 — 추세 분석 탭 (주요 대분류 · 주차별)...');
   const tctx = computeTrendWeeklySignals(ds);
 
@@ -1673,6 +1974,19 @@ async function main() {
       action: actionFor(h),
     })) : [],
     trend_commentary: trendResult.commentary,
+
+    // --- [v14 추가] 예상 결과(간단 추정) — Joe 요청("혹시 예상 되는 결과 도출도 가능하니").
+    //     (1) forecast_monthly: 이번 달/올해 남은 기간 예상 공고 건수
+    //     (2) forecast_share: 업체별·공종별·구분별 예상 점유율 변화(연말 예상치, 선형 추세 가정)
+    //     (3) forecast_journey_win: 고객여정 퍼널 예상 낙찰 건수
+    //     ⚠ 모두 과거 패턴을 그대로 연장한 단순 추정이며 통계적 예측 모델이 아닙니다.
+    //     2025년 참고 데이터(data/reference-2025-daily.json)가 없으면 forecast_monthly의
+    //     남은 달 예상·forecast_share는 비어있을 수 있습니다.
+    forecast_monthly: monthlyForecast,
+    forecast_share: shareForecast,
+    forecast_journey_win: journeyWinForecast,
+    forecast_model: forecastResult.model,
+    forecast_commentary: forecastResult.commentary,
   };
 
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
@@ -1699,4 +2013,6 @@ module.exports = {
   normalizeJourneyRegion, primaryJourneyWorktype, buildJourneyFunnelHighlightLines,
   callClaudeForJourneyFunnel,
   loadReference2025, computeYoySignals,
+  sumFieldsForYtd, computeMonthlyForecast, computeShareForecastGroup, computeShareForecast,
+  computeJourneyWinForecast, buildForecastHighlightLines, callClaudeForForecast,
 };
