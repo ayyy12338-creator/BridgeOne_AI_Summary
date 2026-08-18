@@ -1779,9 +1779,17 @@ function computeCustomerJourneyFunnel(journeyRows) {
 
     if (!catKey) { skippedNoCategory++; return; }
 
-    // [v18] 아파트ID가 있으면 그것을 우선 사용(주소 표기 차이와 무관하게 같은 단지를 정확히
-    // 묶기 위함), 없는 행만 기존 "아파트명+주소" 텍스트 방식으로 폴백합니다.
-    const caseKey = aptId ? `ID::${aptId}::${work}` : `TXT::${aptName}::${addr}::${work}`;
+    // [v19 — 2026-08-18] Joe 확인("제안한걸로 해주세요") — v18에서 켠 "아파트ID 우선"
+    // 매칭을 일단 되돌립니다. 배포 직후 아래 apartment_id_quality 진단에서 고유 ID 897개 중
+    // 178개(약 20%)가 서로 다른 아파트명과 겹치는 게 확인됐고, 라이브 시트 재확인 결과 같은
+    // 단지(대주파크빌아파트, 인천 서구 마전로99번길 8)인데도 등록 건마다 아파트ID가
+    // 3개(2635010500114080000000001 / 4719012200105780000002527 /
+    // 4146510500102160000200003)로 다르게 붙어 있음을 발견했습니다 — "API로 정리했다"는
+    // 아파트ID가 아직 단지 단위로 일관되지 않은 상태로 보여, 원인이 확인될 때까지 케이스
+    // 매칭은 기존 "아파트명+주소" 텍스트 방식으로만 사용합니다. 아래 아파트ID 품질 모니터링
+    // (aptIdNames/aptIdCollisions)은 그대로 남겨둬 원인이 해소되는지 계속 추적합니다 —
+    // colliding_apt_ids가 0에 가까워지면 그때 다시 ID 우선으로 전환을 검토합니다.
+    const caseKey = `${aptName}__${addr}__${work}`;
     const p = priorityMap[catKey];
     const existing = best.get(caseKey);
     if (!existing || p > existing.priority) {
@@ -1981,10 +1989,12 @@ function computeCustomerJourneyFunnel(journeyRows) {
     by_worktype: buildDimensionBreakdown('worktype'),
     dimension_min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
     company_analysis: buildCompanyAnalysis(),
-    // [v18] 아파트ID 매칭 품질 진단(참고용) — case_key_method는 케이스 매칭이 아파트ID
-    // 우선 방식으로 전환됐음을 나타내는 표시입니다.
+    // [v19] 아파트ID 매칭 품질 모니터링(참고용, 케이스 매칭에는 미사용) — v18에서 켰던
+    // "아파트ID 우선" 매칭은 아래 진단(같은 ID가 다른 단지와 겹치는 문제)이 확인되어 v19에서
+    // 되돌렸습니다. case_key_method는 지금 실제로 쓰이는 매칭 기준이 텍스트 방식임을
+    // 나타내며, colliding_apt_ids가 원인 확인 후 0에 가까워지면 ID 우선 전환을 재검토합니다.
     apartment_id_quality: {
-      case_key_method: 'apartment_id_primary_v18',
+      case_key_method: 'text_based_v19_pending_apt_id_fix',
       apt_id_column_found: iAptId >= 0,
       distinct_apt_ids: aptIdNames.size,
       colliding_apt_ids: aptIdCollisions,
