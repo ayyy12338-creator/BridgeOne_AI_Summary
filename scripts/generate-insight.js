@@ -1667,6 +1667,7 @@ const JOURNEY_STALE_L4_DAYS = 45;             // 진행중(L4) 케이스가 이 
 const JOURNEY_STALE_MIN_COUNT = 2;            // 정체 케이스가 이 건수 이상인 업체만 노출
 const JOURNEY_DROPOUT_ANOMALY_MIN_SAMPLE = 10; // 이탈 집중 판정 최소 표본
 const JOURNEY_DROPOUT_ANOMALY_GAP = 20;       // 전체 평균 대비 이탈률이 이 %p 이상 높으면 이상치
+const JOURNEY_REUSE_WINDOW_DAYS = 60;         // [v21] ⑥ 재사용 L2 판정 기간(일) — 원본 플레이북 정의 그대로
 const JOURNEY_COMPANY_LEADERBOARD_TOP_N = 10;
 const JOURNEY_HIGHLIGHT_TOP_N = 8;
 
@@ -1747,6 +1748,12 @@ function computeCustomerJourneyFunnel(journeyRows) {
   const best = new Map(); // case_key(v18: 아파트ID 우선, 없으면 아파트명+주소, +공종명) -> { key, priority, region, worktype }
   const companyCase = new Map(); // case_key+업체명 -> { key, priority, company, lastDate } — [v15] 업체별 분석용
   const companyEvents = []; // { company, date } — [v15] 업체별 활동(이벤트) 추이용
+  // [v21 — 2026-08-19] ⑥ 60일 재사용 L2율 계산용. 업체 -> (현장키(아파트명+주소+공종명, 업체명
+  // 제외) -> {firstL2, firstL3Plus}). Joe 확인: "업체명+현장명+공종명이 일치해야 연결되는거
+  // 아니냐"(v20) 정의를 그대로 재사용 — 이 지표는 "같은 업체가 다른 현장에서 재사용했는지"를
+  // 보는 것이라, 현장키는 업체명을 뺀 키(아파트명+주소+공종명)여야 "다른 현장"을 구분할 수
+  // 있고, 그 현장키들을 업체별로 묶어야 "같은 업체의 여러 현장"을 비교할 수 있습니다.
+  const companySiteFirstDates = new Map();
   const aptIdNames = new Map(); // [v18] 아파트ID -> Set(아파트명) — 품질 모니터링용(같은 ID가 다른 이름과 매칭되는지)
   let testExcluded = 0;
   let companyExcluded = 0; // [v16] Joe 요청으로 제외한 업체(JOURNEY_COMPANY_EXCLUDE_PREFIXES) 행 수
@@ -1814,6 +1821,22 @@ function computeCustomerJourneyFunnel(journeyRows) {
         if (eventDate && (!entry.lastDate || eventDate > entry.lastDate)) entry.lastDate = eventDate;
       }
     }
+
+    // [v21] ⑥ 60일 재사용 L2율 재료 — 업체별로 현장(caseKey)마다 "처음 L2 찍힌 날"과
+    // "처음 L3 이상 찍힌 날"을 기록. 원문 단계값(stage)을 그대로 씁니다(catKey는 유찰/낙찰
+    // 등으로 재분류될 수 있어서, "실제 시트에 L3/L4/L5로 찍힌 적이 있는가"를 보려면 원문이
+    // 더 정확함). eventDate가 없는 행은 날짜 비교가 불가능하므로 건너뜁니다.
+    if (company && eventDate) {
+      if (!companySiteFirstDates.has(company)) companySiteFirstDates.set(company, new Map());
+      const siteMap = companySiteFirstDates.get(company);
+      if (!siteMap.has(caseKey)) siteMap.set(caseKey, { firstL2: null, firstL3Plus: null });
+      const site = siteMap.get(caseKey);
+      if (stage === 'L2') {
+        if (!site.firstL2 || eventDate < site.firstL2) site.firstL2 = eventDate;
+      } else if (stage === 'L3' || stage === 'L4' || stage === 'L5') {
+        if (!site.firstL3Plus || eventDate < site.firstL3Plus) site.firstL3Plus = eventDate;
+      }
+    }
   });
 
   // [v18] 아파트ID 품질 모니터링 — 같은 아파트ID가 서로 다른 아파트명과 매칭되는 경우가
@@ -1844,6 +1867,26 @@ function computeCustomerJourneyFunnel(journeyRows) {
     label: c.label,
     count: counts[c.key] || 0,
     pct: totalCases ? Number(((counts[c.key] || 0) / totalCases * 100).toFixed(1)) : 0,
+  }));
+
+  // [v20 — 2026-08-19] Joe 확인("업체명,현장명과 공종명이 일치해야 연결시킬 수 있는거
+  // 아니냐") — 맞는 지적입니다. 위 `categories`/`total_cases`는 케이스 키가
+  // 아파트명+주소+공종명뿐이라 업체명이 빠져 있고, 같은 현장·같은 공종에 여러 협력사가
+  // 관여하면 그중 가장 진행된 업체 하나로 뭉개집니다. `companyCase`(업체명까지 포함한 키,
+  // [v15]부터 이미 계산되고 있었으나 지금까지는 company_analysis 내부 집계에만 쓰이고
+  // categories처럼 전체 분포로는 출력된 적이 없었음)를 그대로 categories와 동일한 구조로
+  // 전체 집계해 출력합니다. 이게 "업체명+현장명+공종명"이 모두 일치해야 하나로 묶이는,
+  // 실제 협력사별 딜(lead) 단위 기준입니다. ④(L2→L3)·⑤(L3→L4) 등 업체 단위 선행지표는
+  // 이제 categories가 아니라 이 categories_by_company_case를 근거로 계산해야 합니다.
+  const companyCaseCounts = {};
+  JOURNEY_CATEGORIES.forEach(c => { companyCaseCounts[c.key] = 0; });
+  companyCase.forEach(v => { companyCaseCounts[v.key] = (companyCaseCounts[v.key] || 0) + 1; });
+  const totalCompanyCases = companyCase.size;
+  const categoriesByCompanyCase = JOURNEY_CATEGORIES.map(c => ({
+    key: c.key,
+    label: c.label,
+    count: companyCaseCounts[c.key] || 0,
+    pct: totalCompanyCases ? Number(((companyCaseCounts[c.key] || 0) / totalCompanyCases * 100).toFixed(1)) : 0,
   }));
 
   // [v12] 지역/공종 단위 세부 분류 — 이탈률(dropout_pct)·POUR 낙찰률(won_pct)을 함께 계산.
@@ -1977,6 +2020,50 @@ function computeCustomerJourneyFunnel(journeyRows) {
     };
   }
 
+  // [v21 — 2026-08-19] ⑥ 60일 재사용 L2율. 정의(원본 플레이북 2번 섹션): "L3/L4 경험 후
+  // 60일 내 다른 현장 L2를 등록한 협력사 ÷ L3/L4 경험 협력사". Joe 확인된 케이스 정의(업체명+
+  // 현장명+공종명)를 그대로 적용 — 위 companySiteFirstDates(업체 -> 현장키 -> {firstL2,
+  // firstL3Plus})를 사용합니다.
+  // 한계: (1) "L3/L4 경험"의 기준일로 그 현장에서 실제로 처음 L3/L4/L5 단계가 찍힌 날짜
+  // (firstL3Plus)를 씀 — 원문 플레이북은 "L3/L4 경험 후"라고만 하고 L3 시점인지 L4 시점인지
+  // 명시하지 않아, 더 이른 시점인 "L3 이상 처음 도달"을 기준으로 함(더 관대한 기준).
+  // (2) '이벤트일자'가 없는 행은 날짜 비교가 불가능해 제외됨(implausible_dates_excluded와
+  // 별개로 집계, 아래 dates_missing_excluded 참고).
+  function buildReuseL2Metric() {
+    if (iEventDate < 0 || companySiteFirstDates.size === 0) return null;
+    let companiesWithL3Plus = 0;
+    let reusedCount = 0;
+    const reusedCompanySample = [];
+    companySiteFirstDates.forEach((siteMap, company) => {
+      const l3PlusSites = [];
+      siteMap.forEach((v, siteKey) => { if (v.firstL3Plus) l3PlusSites.push({ siteKey, date: v.firstL3Plus }); });
+      if (l3PlusSites.length === 0) return;
+      companiesWithL3Plus++;
+      let reused = false;
+      for (const ref of l3PlusSites) {
+        siteMap.forEach((v, siteKey) => {
+          if (reused || siteKey === ref.siteKey || !v.firstL2) return;
+          const diff = journeyDaysDiff(ref.date, v.firstL2); // ref.date(L3+ 도달) -> firstL2(다른 현장)까지 일수
+          if (diff >= 0 && diff <= JOURNEY_REUSE_WINDOW_DAYS) reused = true;
+        });
+        if (reused) break;
+      }
+      if (reused) {
+        reusedCount++;
+        if (reusedCompanySample.length < 20) reusedCompanySample.push(company);
+      }
+    });
+    return {
+      window_days: JOURNEY_REUSE_WINDOW_DAYS,
+      case_key_method: 'apt_name__addr__worktype (업체명 제외 — 같은 업체 내 "다른 현장"을 구분하는 키)',
+      companies_with_l3plus_experience: companiesWithL3Plus,
+      reused_within_window: reusedCount,
+      reuse_rate_pct: companiesWithL3Plus ? Number((reusedCount / companiesWithL3Plus * 100).toFixed(1)) : 0,
+      reused_company_sample: reusedCompanySample,
+      caveat: 'L3/L4 경험 기준일은 해당 현장에서 L3 이상이 처음 찍힌 날짜(firstL3Plus, 더 관대한 기준). 이벤트일자 없는 행은 날짜 비교 불가로 제외됨.',
+    };
+  }
+
   return {
     total_cases: totalCases,
     total_source_rows: journeyRows.length - 1,
@@ -1985,10 +2072,18 @@ function computeCustomerJourneyFunnel(journeyRows) {
     excluded_company_names: JOURNEY_COMPANY_EXCLUDE_PREFIXES,
     skipped_rows_no_category: skippedNoCategory,
     categories,
+    // [v20] 업체명+아파트명+주소+공종명 모두 일치하는 키 기준 전체 분포(위 "categoriesByCompanyCase"
+    // 계산부 주석 참고) — categories와 total_cases는 업체명이 빠진 "현장·공종" 단위라 여러
+    // 협력사가 얽힌 케이스를 과대평가할 수 있음. 업체 단위 선행지표(④⑤ 등)는 이쪽을 사용할 것.
+    total_company_cases: totalCompanyCases,
+    company_case_key_method: 'apt_name__addr__worktype__company_name',
+    categories_by_company_case: categoriesByCompanyCase,
     by_region: buildDimensionBreakdown('region'),
     by_worktype: buildDimensionBreakdown('worktype'),
     dimension_min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
     company_analysis: buildCompanyAnalysis(),
+    // [v21] ⑥ 60일 재사용 L2율 — 위 buildReuseL2Metric() 계산부 주석 참고.
+    reuse_l2_60d: buildReuseL2Metric(),
     // [v19] 아파트ID 매칭 품질 모니터링(참고용, 케이스 매칭에는 미사용) — v18에서 켰던
     // "아파트ID 우선" 매칭은 아래 진단(같은 ID가 다른 단지와 겹치는 문제)이 확인되어 v19에서
     // 되돌렸습니다. case_key_method는 지금 실제로 쓰이는 매칭 기준이 텍스트 방식임을
