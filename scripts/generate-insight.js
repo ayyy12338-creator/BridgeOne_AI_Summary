@@ -1590,6 +1590,52 @@ function primaryJourneyWorktype(work) {
   return first || '기타';
 }
 
+// ---------------------------------------------------------------------------
+// [v15 추가 — 2026-08-18] Joe 요청("고객여정 데이터... 활동이 많아진 혹은 적어진, 그리고
+// 특이점이 있는 업체 등 다양하게 볼 수 있도록") — "여정_최종" 시트의 '이벤트일자' 컬럼을
+// 새로 활용해, 기존 케이스 집계(문의~낙찰 단계, 지역/공종별)와는 별도로 "업체(협력사)"
+// 단위 분석을 추가합니다.
+// ※ 위 주석(computeCustomerJourneyFunnel 내부)과 동일하게, 여기서 말하는 "업체명"은 실제
+// 경쟁사가 아니라 우리 쪽 협력사(시공사)명입니다.
+//   1) leaderboard         — 업체별 낙찰률·이탈률 순위표 (표본 JOURNEY_DIMENSION_MIN_SAMPLE건
+//                            이상, by_region/by_worktype와 동일한 방식·기준)
+//   2) activity_highlights — 최근/직전 JOURNEY_ACTIVITY_WINDOW_DAYS일 "이벤트(행) 건수"를
+//                            비교해 업체별 활동 급증/급감·신규 진입을 감지 (규칙 기반, AI 아님)
+//   3) dropout_anomalies   — 전체 평균 이탈률보다 JOURNEY_DROPOUT_ANOMALY_GAP%p 이상 높은
+//                            업체 (표본 JOURNEY_DROPOUT_ANOMALY_MIN_SAMPLE건 이상)
+//   4) stalled             — 공고(L4) 진행중 상태에서 마지막 이벤트가
+//                            JOURNEY_STALE_L4_DAYS일 넘게 없는 케이스가 많은 업체
+// 전부 이미 계산된 숫자를 규칙으로 걸러낸 것으로(AI 개입 없음), journey_funnel_commentary
+// AI 코멘트에는 요약 신호로만 전달되고 원인은 추측하지 않습니다. "이벤트일자" 컬럼이 시트에
+// 없으면(구조 변경 등) 이 분석 전체를 건너뛰고 나머지 집계(categories/by_region/by_worktype)
+// 는 그대로 정상 동작합니다.
+// ---------------------------------------------------------------------------
+const JOURNEY_ACTIVITY_WINDOW_DAYS = 30;      // 활동 증가/감소 비교 기간(일)
+const JOURNEY_ACTIVITY_MIN_BASE = 3;          // 직전 기간 값이 이보다 작으면 %변동 계산에서 제외
+const JOURNEY_NEW_ENTRANT_MIN = 3;            // 신규 진입으로 표시할 최소 최근 건수
+const JOURNEY_ACTIVITY_THRESH_PCT = 30;       // 최근/직전 대비 이 %이상 변동만 하이라이트
+const JOURNEY_STALE_L4_DAYS = 45;             // 진행중(L4) 케이스가 이 일수 넘게 활동 없으면 "정체"
+const JOURNEY_STALE_MIN_COUNT = 2;            // 정체 케이스가 이 건수 이상인 업체만 노출
+const JOURNEY_DROPOUT_ANOMALY_MIN_SAMPLE = 10; // 이탈 집중 판정 최소 표본
+const JOURNEY_DROPOUT_ANOMALY_GAP = 20;       // 전체 평균 대비 이탈률이 이 %p 이상 높으면 이상치
+const JOURNEY_COMPANY_LEADERBOARD_TOP_N = 10;
+const JOURNEY_HIGHLIGHT_TOP_N = 8;
+
+// "여정_최종" 시트의 '이벤트일자'는 "2026.5.5"처럼 점(.)으로 구분되고 0채움이 없는 경우가
+// 있어, 점/하이픈/슬래시를 모두 허용하고 YYYY-MM-DD로 정규화합니다. 형식이 다르면 null.
+function parseJourneyEventDate(raw) {
+  const s = (raw || '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (!m) return null;
+  const mo = String(m[2]).padStart(2, '0'), d = String(m[3]).padStart(2, '0');
+  const iso = `${m[1]}-${mo}-${d}`;
+  return isNaN(new Date(iso).getTime()) ? null : iso;
+}
+function journeyDaysDiff(fromStr, toStr) {
+  return Math.round((new Date(toStr) - new Date(fromStr)) / 86400000);
+}
+
 function computeCustomerJourneyFunnel(journeyRows) {
   if (!journeyRows || journeyRows.length < 2) return null;
 
@@ -1612,7 +1658,13 @@ function computeCustomerJourneyFunnel(journeyRows) {
   const priorityMap = {};
   JOURNEY_CATEGORIES.forEach(c => { priorityMap[c.key] = c.priority; });
 
+  // [v15] '이벤트일자' 컬럼은 업체별 분석에만 쓰이므로 없어도 나머지 집계는 그대로 동작하게
+  // 필수 컬럼 목록(iAptName 등)에는 포함하지 않고 별도로 확인합니다.
+  const iEventDate = idx('이벤트일자');
+
   const best = new Map(); // case_key(아파트명+주소+공종명, 텍스트) -> { key, priority, region, worktype }
+  const companyCase = new Map(); // case_key+업체명 -> { key, priority, company, lastDate } — [v15] 업체별 분석용
+  const companyEvents = []; // { company, date } — [v15] 업체별 활동(이벤트) 추이용
   let testExcluded = 0;
   let skippedNoCategory = 0;
 
@@ -1628,6 +1680,9 @@ function computeCustomerJourneyFunnel(journeyRows) {
     const stage = (r[iStage] || '').trim();
     const status = (r[iStatus] || '').trim();
     const catKey = classifyJourneyRow(stage, status);
+    const eventDate = iEventDate >= 0 ? parseJourneyEventDate(r[iEventDate]) : null;
+    if (company && eventDate) companyEvents.push({ company, date: eventDate });
+
     if (!catKey) { skippedNoCategory++; return; }
 
     const caseKey = `${aptName}__${addr}__${work}`;
@@ -1640,6 +1695,20 @@ function computeCustomerJourneyFunnel(journeyRows) {
         region: normalizeJourneyRegion(r[iAddr]),
         worktype: primaryJourneyWorktype(work),
       });
+    }
+
+    // [v15] 케이스+업체 단위로도 별도 집계 — 같은 현장·공종에 여러 협력사가 관여할 수 있어
+    // (케이스 단위 best와 달리) 업체별 성과/정체 판단에는 업체를 키에 포함해야 합니다.
+    if (company) {
+      const groupKey = `${caseKey}__${company}`;
+      let entry = companyCase.get(groupKey);
+      if (!entry) {
+        entry = { key: catKey, priority: p, company, lastDate: eventDate || null };
+        companyCase.set(groupKey, entry);
+      } else {
+        if (p >= entry.priority) { entry.key = catKey; entry.priority = p; }
+        if (eventDate && (!entry.lastDate || eventDate > entry.lastDate)) entry.lastDate = eventDate;
+      }
     }
   });
 
@@ -1682,6 +1751,109 @@ function computeCustomerJourneyFunnel(journeyRows) {
       .slice(0, 8);
   }
 
+  // [v15] 업체(협력사)별 분석 — '이벤트일자' 컬럼이 있을 때만 계산합니다.
+  function buildCompanyAnalysis() {
+    if (iEventDate < 0 || companyCase.size === 0) return null;
+
+    const companyBuckets = new Map(); // company -> {total, dropout, won, lostToCompetitor, l4Pending, staleL4}
+    let asOfDate = null;
+    companyEvents.forEach(e => { if (!asOfDate || e.date > asOfDate) asOfDate = e.date; });
+    if (!asOfDate) return null; // 유효한 날짜가 하나도 없으면 계산 불가
+
+    companyCase.forEach(v => {
+      if (!companyBuckets.has(v.company)) companyBuckets.set(v.company, { total: 0, dropout: 0, won: 0, lostToCompetitor: 0, l4Pending: 0, staleL4: 0 });
+      const b = companyBuckets.get(v.company);
+      b.total++;
+      if (JOURNEY_DROPOUT_KEYS.has(v.key)) b.dropout++;
+      if (v.key === 'won') b.won++;
+      if (v.key === 'lost_to_competitor') b.lostToCompetitor++;
+      if (v.key === 'l4_pending') {
+        b.l4Pending++;
+        if (v.lastDate && journeyDaysDiff(v.lastDate, asOfDate) >= JOURNEY_STALE_L4_DAYS) b.staleL4++;
+      }
+    });
+
+    let dropoutTotalAll = 0, dropoutSumAll = 0;
+    companyBuckets.forEach(b => { dropoutTotalAll += b.total; dropoutSumAll += b.dropout; });
+    const overallDropoutPct = dropoutTotalAll ? Number((dropoutSumAll / dropoutTotalAll * 100).toFixed(1)) : 0;
+
+    // 1) 업체별 낙찰률·이탈률 순위표 — by_region/by_worktype와 동일한 표본 기준
+    const leaderboard = Array.from(companyBuckets.entries())
+      .map(([company, b]) => ({
+        company, total: b.total,
+        dropout: b.dropout, dropout_pct: b.total ? Number((b.dropout / b.total * 100).toFixed(1)) : 0,
+        won: b.won, won_pct: b.total ? Number((b.won / b.total * 100).toFixed(1)) : 0,
+        lost_to_competitor: b.lostToCompetitor,
+        l4_pending: b.l4Pending, stale_l4: b.staleL4,
+      }))
+      .filter(x => x.total >= JOURNEY_DIMENSION_MIN_SAMPLE)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, JOURNEY_COMPANY_LEADERBOARD_TOP_N);
+
+    // 2) 오래 정체된 진행중(L4) 케이스가 많은 업체
+    const stalled = Array.from(companyBuckets.entries())
+      .map(([company, b]) => ({ company, stale_l4: b.staleL4, l4_pending: b.l4Pending }))
+      .filter(x => x.stale_l4 >= JOURNEY_STALE_MIN_COUNT)
+      .sort((a, b) => b.stale_l4 - a.stale_l4)
+      .slice(0, JOURNEY_COMPANY_LEADERBOARD_TOP_N);
+
+    // 3) 전체 평균보다 이탈률이 유난히 높은 업체(이탈 집중)
+    const dropoutAnomalies = Array.from(companyBuckets.entries())
+      .map(([company, b]) => ({ company, total: b.total, dropout: b.dropout, dropout_pct: b.total ? Number((b.dropout / b.total * 100).toFixed(1)) : 0 }))
+      .filter(x => x.total >= JOURNEY_DROPOUT_ANOMALY_MIN_SAMPLE && (x.dropout_pct - overallDropoutPct) >= JOURNEY_DROPOUT_ANOMALY_GAP)
+      .sort((a, b) => b.dropout_pct - a.dropout_pct)
+      .slice(0, JOURNEY_COMPANY_LEADERBOARD_TOP_N);
+
+    // 4) 최근/직전 JOURNEY_ACTIVITY_WINDOW_DAYS일 "이벤트(행) 건수" 비교 — 활동 급증/급감·신규 진입
+    const recentFrom = addDays(asOfDate, -(JOURNEY_ACTIVITY_WINDOW_DAYS - 1));
+    const prevTo = addDays(recentFrom, -1);
+    const prevFrom = addDays(prevTo, -(JOURNEY_ACTIVITY_WINDOW_DAYS - 1));
+
+    const companyEventCounts = new Map(); // company -> {recent, prev}
+    companyEvents.forEach(({ company, date }) => {
+      if (!companyEventCounts.has(company)) companyEventCounts.set(company, { recent: 0, prev: 0 });
+      const c = companyEventCounts.get(company);
+      if (date >= recentFrom && date <= asOfDate) c.recent++;
+      else if (date >= prevFrom && date <= prevTo) c.prev++;
+    });
+
+    const activityHighlights = [];
+    companyEventCounts.forEach((c, company) => {
+      if (c.prev === 0) {
+        if (c.recent >= JOURNEY_NEW_ENTRANT_MIN) {
+          activityHighlights.push({
+            company, direction: 'new', recent: c.recent, prev: c.prev, score: 50 + c.recent,
+            text: `<b>${company}</b> 관련 활동이 최근 ${JOURNEY_ACTIVITY_WINDOW_DAYS}일간 새로 ${c.recent}건 발생했습니다 (직전 ${JOURNEY_ACTIVITY_WINDOW_DAYS}일 0건).`,
+          });
+        }
+        return;
+      }
+      if (c.prev < JOURNEY_ACTIVITY_MIN_BASE) return;
+      const pct = (c.recent - c.prev) / c.prev * 100;
+      if (Math.abs(pct) >= JOURNEY_ACTIVITY_THRESH_PCT) {
+        activityHighlights.push({
+          company, direction: pct > 0 ? 'up' : 'down', recent: c.recent, prev: c.prev, pct: Number(pct.toFixed(0)), score: Math.abs(pct),
+          text: `<b>${company}</b> 관련 활동이 직전 ${JOURNEY_ACTIVITY_WINDOW_DAYS}일 ${c.prev}건 → 최근 ${JOURNEY_ACTIVITY_WINDOW_DAYS}일 ${c.recent}건으로 ${pct > 0 ? '▲' : '▼'}${Math.abs(pct).toFixed(0)}% ${pct > 0 ? '증가' : '감소'}했습니다.`,
+        });
+      }
+    });
+    activityHighlights.sort((a, b) => b.score - a.score);
+
+    return {
+      as_of_date: asOfDate,
+      window_days: JOURNEY_ACTIVITY_WINDOW_DAYS,
+      min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
+      overall_dropout_pct: overallDropoutPct,
+      leaderboard,
+      activity_highlights: activityHighlights.slice(0, JOURNEY_HIGHLIGHT_TOP_N),
+      dropout_anomalies: dropoutAnomalies,
+      stalled,
+      stale_l4_days: JOURNEY_STALE_L4_DAYS,
+      dropout_anomaly_min_sample: JOURNEY_DROPOUT_ANOMALY_MIN_SAMPLE,
+      dropout_anomaly_gap: JOURNEY_DROPOUT_ANOMALY_GAP,
+    };
+  }
+
   return {
     total_cases: totalCases,
     total_source_rows: journeyRows.length - 1,
@@ -1691,6 +1863,7 @@ function computeCustomerJourneyFunnel(journeyRows) {
     by_region: buildDimensionBreakdown('region'),
     by_worktype: buildDimensionBreakdown('worktype'),
     dimension_min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
+    company_analysis: buildCompanyAnalysis(),
   };
 }
 
@@ -1732,6 +1905,25 @@ function buildJourneyFunnelHighlightLines(jf) {
     // 프롬프트에 명시).
     lines.push(`※ '공종명' 표기가 문의·컨설팅(L2·L3) 단계와 공고·낙찰(L4·L5) 단계에서 서로 다른 용어를 쓰는 사례가 확인되었습니다(예: "슁글"은 초기 단계에만, "싱글"은 후기 단계에만 등장 / "균열보수및재도장"은 초기 단계에만, "재도장"은 후기 단계에만 등장). 그래서 공종별 이탈률·낙찰률 수치는 실제 공종 간 성과 차이인지 단계별 표기 차이인지 이 데이터만으로 구분할 수 없어, 공종별로는 결론을 내리지 않습니다.`);
   }
+
+  // [v15 추가] 업체(협력사)별 분석 신호 — activity_highlights/dropout_anomalies/stalled 중
+  // 상위 몇 건만 문장으로 요약해 AI 코멘트 입력에 포함합니다(전부 넣으면 프롬프트가 너무
+  // 길어지므로 각 유형별 상위 2~3건만). ※ '업체명'은 실제 경쟁사가 아니라 우리 협력사명.
+  const ca = jf.company_analysis;
+  if (ca) {
+    if (ca.activity_highlights && ca.activity_highlights.length) {
+      const top = ca.activity_highlights.slice(0, 3).map(h => h.text.replace(/<\/?b>/g, ''));
+      lines.push(`협력사별 활동 변동(기준일 ${ca.as_of_date}, 최근/직전 ${ca.window_days}일 비교): ${top.join(' ')}`);
+    }
+    if (ca.dropout_anomalies && ca.dropout_anomalies.length) {
+      const top = ca.dropout_anomalies.slice(0, 2).map(a => `${a.company}(${a.total}건 중 ${a.dropout}건, ${a.dropout_pct}%)`);
+      lines.push(`전체 평균 이탈률(${ca.overall_dropout_pct}%)보다 유난히 높은 협력사: ${top.join(', ')}.`);
+    }
+    if (ca.stalled && ca.stalled.length) {
+      const top = ca.stalled.slice(0, 2).map(s => `${s.company}(진행중 ${s.l4_pending}건 중 ${s.stale_l4}건이 ${ca.stale_l4_days}일 넘게 업데이트 없음)`);
+      lines.push(`공고(L4) 진행중 상태로 오래 정체된 협력사: ${top.join(', ')}.`);
+    }
+  }
   return lines;
 }
 
@@ -1754,7 +1946,8 @@ ${signalText}
 - 이탈(문의·컨설팅에서 멈추는 것) 비중이 큰 지역을 짚어주고, 실무진이 우선적으로 들여다볼 만한 지점을 제안하세요.
 - 다만 "왜" 이탈이 발생했는지는 이 데이터만으로 알 수 없으므로 원인을 단정하지 말고 "확인 필요"로 표현하세요.
 - 집계 결과에 "※"로 시작하는 데이터 품질 관련 안내(주소 판별 불가, 공종명 표기 불일치 등)가 있다면, 그 내용은 있는 그대로 전달하되 거기서 "어느 지역/공종이 더 낫다"는 식의 결론을 만들어내지 마세요 — 특히 공종별 수치는 표기 불일치 때문에 신뢰할 수 없다는 점이 명시된 경우, 공종에 대해서는 어떤 순위나 결론도 내리지 마세요.
-- 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 문장 단위로 끊어 한국어로 3~5문장 이내로 작성하세요.
+- "협력사"(업체) 관련 신호가 있다면 함께 짚어주세요. 단, 여기서 '업체명'은 우리 쪽 시공 협력사이지 낙찰받은 경쟁사가 아니므로, 협력사에 대해 언급할 때는 "영업/현장 관리 차원에서 확인해볼 만하다"는 취지로만 표현하고, 그 협력사의 잘잘못을 단정하지 마세요.
+- 과장하지 말고 사실 위주로, 실무진이 바로 읽을 수 있도록 문장 단위로 끊어 한국어로 3~6문장 이내로 작성하세요.
 - 존댓말을 사용하세요.`;
 
   const commentary = await callAiProvider(prompt, 768);
@@ -1802,6 +1995,13 @@ async function main() {
     console.log(journeyFunnel
       ? `  - 케이스 ${journeyFunnel.total_cases}건 집계됨(원본 ${journeyFunnel.total_source_rows}행, 테스트데이터 ${journeyFunnel.excluded_test_rows}행 제외)`
       : '  - 집계 실패(시트 구조 확인 필요) — 건너뜀');
+    // [v15] 업체(협력사)별 분석 — '이벤트일자' 컬럼이 없거나 계산 불가하면 null(건너뜀).
+    if (journeyFunnel && journeyFunnel.company_analysis) {
+      const ca = journeyFunnel.company_analysis;
+      console.log(`  - 업체별 분석: 순위표 ${ca.leaderboard.length}개사, 활동 하이라이트 ${ca.activity_highlights.length}건, 이탈 집중 ${ca.dropout_anomalies.length}개사, 정체 ${ca.stalled.length}개사 (기준일 ${ca.as_of_date})`);
+    } else if (journeyFunnel) {
+      console.log('  - 업체별 분석: 건너뜀("이벤트일자" 컬럼 없음 또는 유효 날짜 없음)');
+    }
     if (journeyFunnel) {
       console.log('  - AI 코멘트(지역·공종별 이탈 패턴) 생성 중...');
       const jfLines = buildJourneyFunnelHighlightLines(journeyFunnel);
@@ -2011,7 +2211,7 @@ module.exports = {
   COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends,
   JOURNEY_CATEGORIES, classifyJourneyRow, computeCustomerJourneyFunnel,
   normalizeJourneyRegion, primaryJourneyWorktype, buildJourneyFunnelHighlightLines,
-  callClaudeForJourneyFunnel,
+  callClaudeForJourneyFunnel, parseJourneyEventDate, journeyDaysDiff,
   loadReference2025, computeYoySignals,
   sumFieldsForYtd, computeMonthlyForecast, computeShareForecastGroup, computeShareForecast,
   computeJourneyWinForecast, buildForecastHighlightLines, callClaudeForForecast,
