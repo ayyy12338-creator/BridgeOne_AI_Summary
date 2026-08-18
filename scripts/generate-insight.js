@@ -1550,6 +1550,16 @@ const JOURNEY_CATEGORIES = [
 const JOURNEY_DROPOUT_KEYS = new Set(['l2_only', 'l3_pending']);
 const JOURNEY_DIMENSION_MIN_SAMPLE = 15; // 표본이 이보다 적은 지역/공종은 노출하지 않음(우연 방지)
 
+// [v16 추가 — 2026-08-18] Joe 요청("넷폼알앤디 부산 경남 지사, 포어솔루션은 데이터에서
+// 제외하고 알려줘")에 따라, 이 두 업체가 관여한 케이스는 고객여정 퍼널 집계 전체(전체
+// 케이스 수·단계별 비율·지역/공종별 세부 분류·업체별 분석 전부)에서 제외합니다 — "테스트"
+// 더미 데이터 제외와 동일한 방식입니다. 정확한 사업적 사유는 안내받지 못했으며, 시트에
+// 표기가 조금씩 달라질 수 있어(지사명 등) 접두어(시작 문자열) 일치로 판별합니다.
+const JOURNEY_COMPANY_EXCLUDE_PREFIXES = ['넷폼알앤디', '포어솔루션'];
+function isExcludedJourneyCompany(company) {
+  return JOURNEY_COMPANY_EXCLUDE_PREFIXES.some(p => company.startsWith(p));
+}
+
 function classifyJourneyRow(stage, status) {
   if (status === '타공법낙찰') return 'lost_to_competitor';
   if (status === '유찰' || status === '공고취소') return 'lost_bid_failed';
@@ -1636,6 +1646,20 @@ function journeyDaysDiff(fromStr, toStr) {
   return Math.round((new Date(toStr) - new Date(fromStr)) / 86400000);
 }
 
+// [v15 수정 — 첫 실행 검증 중 발견] "이벤트일자"에 연도 오타로 보이는 미래 날짜(예: 2027년)가
+// 섞여 있으면, "가장 최근 날짜"를 기준일(as_of_date)로 삼는 로직이 이 오타 값에 끌려가
+// 최근/직전 30일 비교 창 전체가 실제 데이터 범위 밖으로 밀려나 버립니다(활동 하이라이트·정체
+// 감지가 전부 비어버리는 원인이 됨). 그래서 이 스크립트가 실제로 실행되는 시점(GitHub Actions
+// 서버의 실제 오늘 날짜)보다 미래인 이벤트일자, 그리고 지나치게 오래된(2015년 이전) 값은
+// "판별 불가"로 취급해 날짜 기반 계산(활동 추이·정체 판정)에서만 제외합니다 — 케이스 분류
+// (문의~낙찰 단계, 순위표의 낙찰률·이탈률)에는 영향이 없습니다.
+const JOURNEY_TODAY = new Date().toISOString().slice(0, 10);
+const JOURNEY_MIN_VALID_DATE = '2015-01-01';
+function isPlausibleJourneyEventDate(dateStr) {
+  if (!dateStr) return false;
+  return dateStr >= JOURNEY_MIN_VALID_DATE && dateStr <= addDays(JOURNEY_TODAY, 1);
+}
+
 function computeCustomerJourneyFunnel(journeyRows) {
   if (!journeyRows || journeyRows.length < 2) return null;
 
@@ -1666,12 +1690,15 @@ function computeCustomerJourneyFunnel(journeyRows) {
   const companyCase = new Map(); // case_key+업체명 -> { key, priority, company, lastDate } — [v15] 업체별 분석용
   const companyEvents = []; // { company, date } — [v15] 업체별 활동(이벤트) 추이용
   let testExcluded = 0;
+  let companyExcluded = 0; // [v16] Joe 요청으로 제외한 업체(JOURNEY_COMPANY_EXCLUDE_PREFIXES) 행 수
   let skippedNoCategory = 0;
+  let implausibleDateExcluded = 0; // [v15] 미래/지나치게 과거인 이벤트일자(오타 추정) 건수
 
   journeyRows.slice(1).forEach(r => {
     if (!r || r.length < 2) return;
     const company = (r[iCompany] || '').trim();
     if (company.includes('테스트')) { testExcluded++; return; }
+    if (isExcludedJourneyCompany(company)) { companyExcluded++; return; }
     const aptName = (r[iAptName] || '').trim();
     const addr = (r[iAddr] || '').trim();
     const work = (r[iWork] || '').trim();
@@ -1680,7 +1707,9 @@ function computeCustomerJourneyFunnel(journeyRows) {
     const stage = (r[iStage] || '').trim();
     const status = (r[iStatus] || '').trim();
     const catKey = classifyJourneyRow(stage, status);
-    const eventDate = iEventDate >= 0 ? parseJourneyEventDate(r[iEventDate]) : null;
+    const eventDateRaw = iEventDate >= 0 ? parseJourneyEventDate(r[iEventDate]) : null;
+    const eventDate = isPlausibleJourneyEventDate(eventDateRaw) ? eventDateRaw : null;
+    if (eventDateRaw && !eventDate) implausibleDateExcluded++;
     if (company && eventDate) companyEvents.push({ company, date: eventDate });
 
     if (!catKey) { skippedNoCategory++; return; }
@@ -1851,6 +1880,7 @@ function computeCustomerJourneyFunnel(journeyRows) {
       stale_l4_days: JOURNEY_STALE_L4_DAYS,
       dropout_anomaly_min_sample: JOURNEY_DROPOUT_ANOMALY_MIN_SAMPLE,
       dropout_anomaly_gap: JOURNEY_DROPOUT_ANOMALY_GAP,
+      implausible_dates_excluded: implausibleDateExcluded,
     };
   }
 
@@ -1858,6 +1888,8 @@ function computeCustomerJourneyFunnel(journeyRows) {
     total_cases: totalCases,
     total_source_rows: journeyRows.length - 1,
     excluded_test_rows: testExcluded,
+    excluded_company_rows: companyExcluded,
+    excluded_company_names: JOURNEY_COMPANY_EXCLUDE_PREFIXES,
     skipped_rows_no_category: skippedNoCategory,
     categories,
     by_region: buildDimensionBreakdown('region'),
@@ -1993,12 +2025,15 @@ async function main() {
     const journeyRows = parseCsv(journeyCsv);
     journeyFunnel = computeCustomerJourneyFunnel(journeyRows);
     console.log(journeyFunnel
-      ? `  - 케이스 ${journeyFunnel.total_cases}건 집계됨(원본 ${journeyFunnel.total_source_rows}행, 테스트데이터 ${journeyFunnel.excluded_test_rows}행 제외)`
+      ? `  - 케이스 ${journeyFunnel.total_cases}건 집계됨(원본 ${journeyFunnel.total_source_rows}행, 테스트데이터 ${journeyFunnel.excluded_test_rows}행·제외 업체(${journeyFunnel.excluded_company_names.join(', ')}) ${journeyFunnel.excluded_company_rows}행 제외)`
       : '  - 집계 실패(시트 구조 확인 필요) — 건너뜀');
     // [v15] 업체(협력사)별 분석 — '이벤트일자' 컬럼이 없거나 계산 불가하면 null(건너뜀).
     if (journeyFunnel && journeyFunnel.company_analysis) {
       const ca = journeyFunnel.company_analysis;
       console.log(`  - 업체별 분석: 순위표 ${ca.leaderboard.length}개사, 활동 하이라이트 ${ca.activity_highlights.length}건, 이탈 집중 ${ca.dropout_anomalies.length}개사, 정체 ${ca.stalled.length}개사 (기준일 ${ca.as_of_date})`);
+      if (ca.implausible_dates_excluded > 0) {
+        console.log(`  - ⚠ "이벤트일자"가 오늘(${JOURNEY_TODAY})보다 미래이거나 지나치게 과거(2015년 이전)인 값 ${ca.implausible_dates_excluded}건은 날짜 기반 계산(활동 추이·정체 판정)에서 제외했습니다(입력 오타 추정, 원본 시트 확인 권장).`);
+      }
     } else if (journeyFunnel) {
       console.log('  - 업체별 분석: 건너뜀("이벤트일자" 컬럼 없음 또는 유효 날짜 없음)');
     }
