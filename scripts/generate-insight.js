@@ -1351,6 +1351,20 @@ function buildCompetitorWatchQuery(name) {
   return `${name} 건설 특허공법 최신 소식`;
 }
 
+// [v16 추가 — 2026-08-18] Joe 피드백("4A에 다른 정보가 있는 거 같은데") 확인 결과, "4A시스템"
+// 검색 결과 중 실제로는 완전히 무관한 회사(자연과환경의 PC공법 기사)를 AI가 "관련 있다"고
+// 잘못 판단해 그 회사명(4A시스템)으로 요약해버린 사례를 확인했습니다. 프롬프트로 "무관하면
+// 걸러라"라고만 지시하는 방식은 약한 모델(gemini-3.5-flash-lite)에서 신뢰할 수 없어, AI에게
+// 넘기기 전에 코드 단계에서 검색 결과 제목·본문에 회사명이 실제로 등장하는지 기계적으로 먼저
+// 걸러내는 안전장치를 추가합니다. AI의 관련성 판단(프롬프트 지시)은 그 다음 단계에서 보조적
+// 안전장치로 계속 유지합니다(동명이인 회사 등 문자열만으로는 못 거르는 경우 대비).
+function resultMentionsCompany(result, name) {
+  const norm = s => (s || '').toLowerCase().replace(/\s+/g, '');
+  const n = norm(name);
+  if (!n) return true;
+  return norm(result.title).includes(n) || norm(result.content).includes(n);
+}
+
 async function generateCompetitorWatchTrends(companyNames) {
   const list = companyNames && companyNames.length ? companyNames : COMPETITOR_WATCHLIST;
   if (list.length === 0) return [];
@@ -1361,10 +1375,14 @@ async function generateCompetitorWatchTrends(companyNames) {
     try {
       // [v9] "최신 동향"이 핵심이므로 먼저 뉴스 카테고리 + 최근 1개월로 좁혀서 검색합니다.
       let results = await callTavilySearch(query, 5, { topic: 'news', timeRange: 'month' });
+      // [v16] 회사명이 실제로 등장하지 않는 결과(검색 엔진의 느슨한 매칭으로 섞여 들어온
+      // 무관한 기사)는 AI에게 넘기기 전에 먼저 제거합니다.
+      results = results.filter(r => resultMentionsCompany(r, name));
       // 5개사 모두가 매일 새 "뉴스"에 나오는 대기업은 아니라, 뉴스 검색이 비어 있으면
       // 일반 웹 검색으로 한 번 더 시도합니다(결과 없음으로 카드가 비는 것을 줄이기 위함).
       if (results.length === 0) {
-        results = await callTavilySearch(query, 5, { topic: 'general' });
+        const general = await callTavilySearch(query, 5, { topic: 'general' });
+        results = general.filter(r => resultMentionsCompany(r, name));
       }
       searchPerCompany.push({ name, results });
     } catch (e) {
@@ -2243,7 +2261,7 @@ module.exports = {
   josa, computeMonthlySignals, monthlyCategorySums, monthlyWorktypeSums,
   computeTrendWeeklySignals, weekMondayStr,
   extractJsonArray, generateWebInformedActions, callTavilySearch, buildSearchQueryFor,
-  COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends,
+  COMPETITOR_WATCHLIST, buildCompetitorWatchQuery, generateCompetitorWatchTrends, resultMentionsCompany,
   JOURNEY_CATEGORIES, classifyJourneyRow, computeCustomerJourneyFunnel,
   normalizeJourneyRegion, primaryJourneyWorktype, buildJourneyFunnelHighlightLines,
   callClaudeForJourneyFunnel, parseJourneyEventDate, journeyDaysDiff,
