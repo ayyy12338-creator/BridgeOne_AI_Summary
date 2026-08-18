@@ -1723,6 +1723,20 @@ function computeCustomerJourneyFunnel(journeyRows) {
     return null;
   }
 
+  // [v18 추가 — 2026-08-18] Joe 요청("여정_최종 아파트 ID 수정했습니다. 확인해서 반영할 곳
+  // 있으면 반영해주세요") — Joe가 "아파트ID"를 원본 6개 탭에 각자 남아있던 값이 아니라
+  // 공식 API(주소 기반 단지 조회)로 재정리했다고 확인해줬습니다. 실제로 재확인한 결과 같은
+  // 현장(예: 동산휴먼시아 L2→L3 진행 건)의 아파트ID가 이제 일관되게 일치함을 확인했고,
+  // Joe가 "아파트ID 우선, 텍스트는 보조"를 선택해 케이스 매칭 기준을 전환합니다. 기존
+  // "아파트명+주소" 방식은 주소 표기 차이(예: "인천광역시 동구 인천 동구 ~" vs "인천 동구
+  // ~")만으로 같은 현장이 서로 다른 케이스로 갈리는 문제가 있었는데, 이제 아파트ID가 있는
+  // 행은 그 문제에서 자유롭습니다. 다만 아파트ID가 비어있는 행은 계속 기존 텍스트 방식으로
+  // 폴백합니다. v12에서 아파트ID를 피했던 이유(구글시트 숫자 정밀도 손실로 서로 다른
+  // 단지가 같은 ID로 겹치던 문제)는 API로 재조회한 값이라 더 이상 해당하지 않을 것으로
+  // 보이나, 만일을 위해 같은 아파트ID가 서로 다른 아파트명과 매칭되는 경우를 계속
+  // 자동으로 탐지해 로그로 남깁니다(아래 aptIdNames).
+  const iAptId = idx('아파트ID');
+
   const priorityMap = {};
   JOURNEY_CATEGORIES.forEach(c => { priorityMap[c.key] = c.priority; });
 
@@ -1730,9 +1744,10 @@ function computeCustomerJourneyFunnel(journeyRows) {
   // 필수 컬럼 목록(iAptName 등)에는 포함하지 않고 별도로 확인합니다.
   const iEventDate = idx('이벤트일자');
 
-  const best = new Map(); // case_key(아파트명+주소+공종명, 텍스트) -> { key, priority, region, worktype }
+  const best = new Map(); // case_key(v18: 아파트ID 우선, 없으면 아파트명+주소, +공종명) -> { key, priority, region, worktype }
   const companyCase = new Map(); // case_key+업체명 -> { key, priority, company, lastDate } — [v15] 업체별 분석용
   const companyEvents = []; // { company, date } — [v15] 업체별 활동(이벤트) 추이용
+  const aptIdNames = new Map(); // [v18] 아파트ID -> Set(아파트명) — 품질 모니터링용(같은 ID가 다른 이름과 매칭되는지)
   let testExcluded = 0;
   let companyExcluded = 0; // [v16] Joe 요청으로 제외한 업체(JOURNEY_COMPANY_EXCLUDE_PREFIXES) 행 수
   let skippedNoCategory = 0;
@@ -1747,6 +1762,12 @@ function computeCustomerJourneyFunnel(journeyRows) {
     const addr = (r[iAddr] || '').trim();
     const work = (r[iWork] || '').trim();
     if (!aptName || !addr) return;
+    const aptId = iAptId >= 0 ? (r[iAptId] || '').trim() : '';
+
+    if (aptId) {
+      if (!aptIdNames.has(aptId)) aptIdNames.set(aptId, new Set());
+      aptIdNames.get(aptId).add(aptName);
+    }
 
     const stage = (r[iStage] || '').trim();
     const status = (r[iStatus] || '').trim();
@@ -1758,7 +1779,9 @@ function computeCustomerJourneyFunnel(journeyRows) {
 
     if (!catKey) { skippedNoCategory++; return; }
 
-    const caseKey = `${aptName}__${addr}__${work}`;
+    // [v18] 아파트ID가 있으면 그것을 우선 사용(주소 표기 차이와 무관하게 같은 단지를 정확히
+    // 묶기 위함), 없는 행만 기존 "아파트명+주소" 텍스트 방식으로 폴백합니다.
+    const caseKey = aptId ? `ID::${aptId}::${work}` : `TXT::${aptName}::${addr}::${work}`;
     const p = priorityMap[catKey];
     const existing = best.get(caseKey);
     if (!existing || p > existing.priority) {
@@ -1784,6 +1807,24 @@ function computeCustomerJourneyFunnel(journeyRows) {
       }
     }
   });
+
+  // [v18] 아파트ID 품질 모니터링 — 같은 아파트ID가 서로 다른 아파트명과 매칭되는 경우가
+  // 있는지 자동 탐지합니다(v12에서 우려했던 "다른 단지가 같은 ID로 겹치는" 문제가 API
+  // 재정리 이후에도 남아있는지 매 실행마다 확인). 발견되면 케이스 집계를 막지는 않고
+  // (아파트ID 우선 방식은 그대로 유지) 로그로만 남겨 Joe가 원본 확인할 수 있게 합니다.
+  let aptIdCollisions = 0;
+  const aptIdCollisionExamples = [];
+  aptIdNames.forEach((names, id) => {
+    if (names.size > 1) {
+      aptIdCollisions++;
+      if (aptIdCollisionExamples.length < 10) {
+        aptIdCollisionExamples.push({ apt_id: id, names: Array.from(names) });
+      }
+    }
+  });
+  if (aptIdCollisions > 0) {
+    console.warn(`  - ⚠ 아파트ID 품질 확인 필요: ${aptIdCollisions}개 ID가 서로 다른 아파트명과 매칭됨(표본: ${JSON.stringify(aptIdCollisionExamples.slice(0, 3))})`);
+  }
 
   const counts = {};
   JOURNEY_CATEGORIES.forEach(c => { counts[c.key] = 0; });
@@ -1940,6 +1981,15 @@ function computeCustomerJourneyFunnel(journeyRows) {
     by_worktype: buildDimensionBreakdown('worktype'),
     dimension_min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
     company_analysis: buildCompanyAnalysis(),
+    // [v18] 아파트ID 매칭 품질 진단(참고용) — case_key_method는 케이스 매칭이 아파트ID
+    // 우선 방식으로 전환됐음을 나타내는 표시입니다.
+    apartment_id_quality: {
+      case_key_method: 'apartment_id_primary_v18',
+      apt_id_column_found: iAptId >= 0,
+      distinct_apt_ids: aptIdNames.size,
+      colliding_apt_ids: aptIdCollisions,
+      collision_examples: aptIdCollisionExamples,
+    },
   };
 }
 
