@@ -1589,6 +1589,157 @@ const JOURNEY_CATEGORIES = [
 const JOURNEY_DROPOUT_KEYS = new Set(['l2_only', 'l3_pending']);
 const JOURNEY_DIMENSION_MIN_SAMPLE = 15; // 표본이 이보다 적은 지역/공종은 노출하지 않음(우연 방지)
 
+// ---------------------------------------------------------------------------
+// [v22 — 2026-08-19] Joe 요청("해당 값에서 AI가 분석해서 플레이북에 있는 행동양식들이
+// 나올 수 있도록 하는건 어떨까")에 대한 구현. Joe가 확인한 방식: "규칙 기반(추천) — 플레이북
+// 원문 행동레버를 그대로 표로 박아넣고, 수치가 기준치보다 낮으면 해당 행동레버를 그대로
+// 출력" — AI가 행동 추천 문장을 새로 만들지 않습니다(허위 행동레버가 나올 위험을 원천 차단).
+// 아래 표는 `POUR_선행지표와행동레버_통합플레이북_리드용_20260818.html`(Joe 업로드본) 2번·4번
+// 섹션 원문을 그대로 옮긴 것 — 절대 임의로 문구를 바꾸거나 새로 만들지 않습니다.
+//
+// 지금 파이프라인이 자동 계산하는 지표는 ④⑤⑥ 세 개뿐입니다(아래 buildLeadingIndicatorAlert
+// 참고). ①90일 활성 협력사율·②첫 L2 도달은 "협약업체 마스터"(POUR협약업체리스트) 외부 파일과의
+// 조인이 필요한데 아직 이 파이프라인에 연결되어 있지 않아(2026-08-18 세션에서 1회성 수동
+// 계산만 했음) 이 비교에서는 제외합니다. ⑦은 미산출, ⑧은 층위가 달라(시장 결과, 영업 여정
+// 병목이 아님) "가장 먼저 약해진 영업 여정 단계" 비교에는 포함하지 않고 별도로만 노출합니다.
+// ---------------------------------------------------------------------------
+const LEADING_INDICATOR_ACTIONS = [
+  {
+    key: 'active_partner_90d',
+    label: '① 90일 활성 협력사율',
+    layer: '영업여정',
+    means_low: '협력사가 POUR 영업을 시작하지 않았거나, 시작은 했으나 L2가 기록되지 않음',
+    action_lever: 'C/N/F 중 공종 적합·과거 활동이 있는 20개사에 첫 공종 선택, 영업 시작 묶음, 샘플·3분 설명자료·현장 등록 화면 중 하나를 시험',
+    supporting_metric: '공종 선택률, 첫 자산 열람률, 현장등록 클릭률, 첫 L2 발생률',
+    if_ineffective: '다운로드가 낮으면 자산 제목/형식, 다운로드는 높고 L2가 낮으면 현장등록 동선/대상군 적합성',
+    pipeline_status: 'not_wired', // 협약업체 마스터 조인 미연결 — 자동 계산 불가(수동 계산만 존재)
+  },
+  {
+    key: 'first_l2',
+    label: '② 첫 L2 도달률/시간',
+    layer: '영업여정',
+    means_low: '온보딩이 영업 시작으로 이어지지 않음',
+    action_lever: '공종 선택 UI, 영업 시작 자산, 첫 현장등록 동선, 초보 협력사 교육 중 하나를 개선',
+    supporting_metric: '협약 후 7일 공종 선택, 14일 자산 열람, 30일 L2',
+    if_ineffective: '공종 선택 자체가 낮으면 온보딩 메시지/화면, 선택은 높고 L2가 낮으면 영업자산 또는 현장등록 과정',
+    pipeline_status: 'not_wired',
+  },
+  {
+    key: 'l2_asset_use',
+    label: '③ L2 맞춤자산 활용률',
+    layer: '서비스실행',
+    means_low: '자동 추천이 맞지 않거나, 자산 제목·형식·내용이 영업에 쓸모없음',
+    action_lever: '사례/비교표/견적 해설/샘플 중 자산 하나를 바꾸고, 앱의 첫 노출 문구·버튼 위치를 테스트',
+    supporting_metric: '노출→다운로드, 다운로드→재열람, "바로 사용 가능" VOC',
+    if_ineffective: '노출이 낮으면 추천 로직/버튼 위치, 다운로드가 낮으면 자산의 제목/형식, VOC가 낮으면 내용',
+    pipeline_status: 'not_wired', // 앱 로그 시트 위치 미확정
+  },
+  {
+    key: 'l2_l3',
+    label: '④ L2→L3 요청 전환율',
+    layer: '영업여정',
+    means_low: '현장은 있으나 고객 설득·가격·기술 신뢰를 만들 다음 지원으로 못 넘어감',
+    action_lever: 'L2 시점에 맞춤 비교표, AI 실행견적, 샘플, PT 체크리스트, 현장검토 중 하나를 자동/선택형으로 제안',
+    supporting_metric: '도움 선택률, 선택유형별 지원 수락률, 지원 후 14일 L3 요청',
+    if_ineffective: '"아직 없음"이 많으면 더 많은 지원이 아니라 L2의 실질성·시점 점검. 특정 선택유형의 L3가 낮으면 그 수단 품질 수정',
+    pipeline_status: 'wired', // categories_by_company_case로 자동 계산됨
+  },
+  {
+    key: 'l3_l4',
+    label: '⑤ L3→L4 공고 반영률',
+    layer: '영업여정',
+    means_low: '지원은 받았지만 아파트의 발주·공고 단계로 못 넘어감',
+    action_lever: 'PT/공법설명, 공고 기술표현 검토, 유사 공고 사례, 현장신뢰 자료 중 하나를 선택',
+    supporting_metric: 'PT 실행률, 기술표현 검토 완료, 고객 질문 해결, 유사 공고 사례 열람',
+    if_ineffective: 'L3는 높고 L4가 낮으면 견적 속도보다 아파트 의사결정/발주조건 지원의 품질을 먼저 고침',
+    pipeline_status: 'wired', // categories(현장 단위)로 자동 계산됨 — Joe 확인: L4는 업체 미확정 단계라 현장 단위가 정확
+  },
+  {
+    key: 'reuse_60d',
+    label: '⑥ 60일 재사용 L2율',
+    layer: '영업여정',
+    means_low: '첫 경험이 다음 영업에서 POUR 재사용으로 이어지지 않음',
+    action_lever: '완료 공종과 연결된 다음 공종 사례, 견적 해설, 준공사진첩, PT 재사용 템플릿 중 하나를 제공',
+    supporting_metric: '후속 자산 열람·재다운로드·다음 공종 버튼 클릭·VOC 필요유형',
+    if_ineffective: '열람은 높고 재사용이 낮으면 다음 공종 연결이 틀림. 열람도 낮으면 완료사례의 형식·제목·전달시점 교체',
+    pipeline_status: 'wired', // reuse_l2_60d로 자동 계산됨
+  },
+  {
+    key: 'ai_doc_quality',
+    label: '⑦ 문서형 지원 AI 품질',
+    layer: '서비스실행',
+    means_low: '지원 속도나 품질이 협력사의 영업 타이밍을 따라가지 못함',
+    action_lever: 'AI가 접수 완결·초안·기한위험을 맡고, 팀은 단가 예외·복합공종·현장판단 같은 예외만 처리. 매주 상위 오류 하나를 템플릿에 반영',
+    supporting_metric: '접수 완결률, AI 초안률, 1차 승인율, 사람 예외처리 비율, 재발행률',
+    if_ineffective: '기한준수가 낮으면 어느 단계(입력/초안/예외)에서 멈췄는지 먼저 분해. "사람이 느리다"는 결론부터 내리지 않음',
+    pipeline_status: 'not_wired', // 컨설팅요청/발행이력 탭 컬럼 미확인
+  },
+  {
+    key: 'pour_vs_competitor',
+    label: '⑧ POUR 대 타사 상대성장',
+    layer: '시장결과',
+    means_low: 'POUR가 타사보다 상대적으로 약해지는 공종·지역이 생김',
+    action_lever: '상대성장이 낮은 공종·지역 2개만 골라 자산·준비 파트너·L2→L3 또는 L3→L4 병목 중 하나를 개선',
+    supporting_metric: '해당 공종·지역의 활성협력사, L2, 다운로드, L3, PT/현장지원, POUR·타사 공고',
+    if_ineffective: '타사 대비 POUR가 약한 공종은 L2부터, L2는 충분하면 L3·L4 병목부터 확인',
+    pipeline_status: 'wired', // forecast_share로 자동 계산됨(단, 분모 기준 미표준화 — ⑧ 실측 결과 참고)
+  },
+];
+
+// [v22] 플레이북 4번 섹션 "원칙"(층위 1번)을 그대로 구현: 활성 협력사 → L2 → L3 → L4 →
+// 서비스실행 순서 중 "지금 파이프라인에서 자동 계산되는" 영업여정 지표(④⑤⑥)만 비교해
+// 그중 값이 가장 낮은(=가장 먼저 약해진) 지표 하나를 고르고, 그 지표의 플레이북 원문
+// 행동레버를 그대로 붙여 돌려줍니다. 값 자체는 위에서 이미 계산된 필드를 그대로 재사용하며
+// 이 함수는 "무엇이 가장 낮은가"만 비교합니다 — AI 호출 없음, 새 수치도 만들지 않음.
+function buildLeadingIndicatorAlert(categories, categoriesByCompanyCase, totalCompanyCases, reuseMetric) {
+  if (!categories || !categoriesByCompanyCase || !totalCompanyCases) return null;
+
+  const byKeySite = {};
+  categories.forEach(c => { byKeySite[c.key] = c; });
+  const byKeyCompany = {};
+  categoriesByCompanyCase.forEach(c => { byKeyCompany[c.key] = c; });
+
+  const l2OnlyCompany = byKeyCompany.l2_only ? byKeyCompany.l2_only.count : 0;
+  const l2l3Rate = totalCompanyCases ? Number(((totalCompanyCases - l2OnlyCompany) / totalCompanyCases * 100).toFixed(1)) : null;
+
+  const l3PlusSite = (byKeySite.l4_pending?.count || 0) + (byKeySite.lost_bid_failed?.count || 0) + (byKeySite.lost_to_competitor?.count || 0) + (byKeySite.won?.count || 0);
+  const l3BaseSite = (byKeySite.l3_pending?.count || 0) + l3PlusSite;
+  const l3l4Rate = l3BaseSite ? Number((l3PlusSite / l3BaseSite * 100).toFixed(1)) : null;
+
+  // [v22] reuseMetric은 computeCustomerJourneyFunnel 내부의 buildReuseL2Metric() 결과를
+  // 호출부에서 그대로 넘겨받습니다 — 이 함수는 nested function이라 여기서 직접 호출할 수
+  // 없어 파라미터로 전달받는 구조로 뺐습니다(중복 계산도 방지).
+  const reuse = reuseMetric || null;
+  const reuseRate = reuse ? reuse.reuse_rate_pct : null;
+
+  const candidates = [
+    { key: 'l2_l3', value_pct: l2l3Rate, sample_note: `업체 단위 ${totalCompanyCases}건 중 L2 이후로 진행한 비율` },
+    { key: 'l3_l4', value_pct: l3l4Rate, sample_note: `현장 단위 L3 이상 도달 ${l3BaseSite}건 중 L4 이상으로 이어진 비율` },
+    { key: 'reuse_60d', value_pct: reuseRate, sample_note: reuse ? `L3+ 경험 업체 ${reuse.companies_with_l3plus_experience}개사 중 재사용 비율` : null },
+  ].filter(c => c.value_pct !== null && c.value_pct !== undefined);
+
+  if (!candidates.length) return null;
+
+  const weakest = candidates.reduce((min, c) => (c.value_pct < min.value_pct ? c : min), candidates[0]);
+  const def = LEADING_INDICATOR_ACTIONS.find(a => a.key === weakest.key);
+
+  return {
+    principle: '플레이북 1번 섹션 원칙: 활성 협력사 → L2 → L3 → L4 → 서비스실행 순서 중 가장 먼저 약해진 지표 1개에만 행동을 붙임',
+    compared: candidates.map(c => ({ key: c.key, label: (LEADING_INDICATOR_ACTIONS.find(a => a.key === c.key) || {}).label, value_pct: c.value_pct, sample_note: c.sample_note })),
+    not_compared_note: '①90일 활성 협력사율·②첫 L2 도달은 협약업체 마스터 데이터가 파이프라인에 아직 연결되지 않아 이 비교에 포함되지 않음(수동 계산치만 존재). ③⑦은 미산출. ⑧은 시장 결과 층위라 별도.',
+    weakest: def ? {
+      key: def.key,
+      label: def.label,
+      value_pct: weakest.value_pct,
+      sample_note: weakest.sample_note,
+      means_low: def.means_low,
+      action_lever: def.action_lever,
+      supporting_metric: def.supporting_metric,
+      if_ineffective: def.if_ineffective,
+    } : null,
+  };
+}
+
 // [v16 추가 — 2026-08-18] Joe 요청("넷폼알앤디 부산 경남 지사, 포어솔루션은 데이터에서
 // 제외하고 알려줘")에 따라, 이 두 업체가 관여한 케이스는 고객여정 퍼널 집계 전체(전체
 // 케이스 수·단계별 비율·지역/공종별 세부 분류·업체별 분석 전부)에서 제외합니다 — "테스트"
@@ -2064,6 +2215,10 @@ function computeCustomerJourneyFunnel(journeyRows) {
     };
   }
 
+  // [v22] buildReuseL2Metric()을 한 번만 계산해 reuse_l2_60d와 leading_indicator_alert
+  // 양쪽에서 재사용합니다(중복 계산 방지).
+  const reuseMetricResult = buildReuseL2Metric();
+
   return {
     total_cases: totalCases,
     total_source_rows: journeyRows.length - 1,
@@ -2083,7 +2238,11 @@ function computeCustomerJourneyFunnel(journeyRows) {
     dimension_min_sample: JOURNEY_DIMENSION_MIN_SAMPLE,
     company_analysis: buildCompanyAnalysis(),
     // [v21] ⑥ 60일 재사용 L2율 — 위 buildReuseL2Metric() 계산부 주석 참고.
-    reuse_l2_60d: buildReuseL2Metric(),
+    reuse_l2_60d: reuseMetricResult,
+    // [v22] Joe 요청("행동양식들이 나올 수 있도록") — 플레이북 원문 행동레버 표(위
+    // LEADING_INDICATOR_ACTIONS)에서 지금 자동 계산되는 영업여정 지표(④⑤⑥) 중 가장 낮은
+    // 값을 찾아 그 지표의 원문 행동레버를 그대로 붙여 반환. AI 생성 없음(규칙 기반).
+    leading_indicator_alert: buildLeadingIndicatorAlert(categories, categoriesByCompanyCase, totalCompanyCases, reuseMetricResult),
     // [v19] 아파트ID 매칭 품질 모니터링(참고용, 케이스 매칭에는 미사용) — v18에서 켰던
     // "아파트ID 우선" 매칭은 아래 진단(같은 ID가 다른 단지와 겹치는 문제)이 확인되어 v19에서
     // 되돌렸습니다. case_key_method는 지금 실제로 쓰이는 매칭 기준이 텍스트 방식임을
