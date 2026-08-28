@@ -1,102 +1,121 @@
 {
-  "generated_at": "2026-08-27T02:29:05.864Z",
+  "generated_at": "2026-08-28T05:26:17.095Z",
   "model": "gemini-3.5-flash-lite",
-  "latest_date": "2026-08-26",
+  "latest_date": "2026-08-27",
   "period": {
     "recent7": [
-      "2026-08-20",
-      "2026-08-26"
+      "2026-08-21",
+      "2026-08-27"
     ],
     "prev7": [
-      "2026-08-13",
-      "2026-08-19"
+      "2026-08-14",
+      "2026-08-20"
     ]
   },
   "pour_share": {
-    "recent": 7.3,
-    "prev": 9
+    "recent": 7.6,
+    "prev": 8
   },
-  "pour_dry_spell_days": 1,
+  "pour_dry_spell_days": 0,
   "highlights": [
     {
-      "text": "옥상방수 공종이 직전 7일 17건 → 최근 7일 39건으로 ▲129% 증가했습니다.",
-      "type": "worktype",
-      "direction": "up",
-      "subject": "옥상방수",
-      "action": "해당 공종 영업자료·견적 준비 강화 검토"
-    },
-    {
-      "text": "🆕 신흥 업체 킹스에코텍이(가) 최근 7일간 새로 4건 등장했습니다 (직전 7일 0건, 주요 8개사 밖 요주의 업체).",
-      "type": "emerging",
-      "direction": "new",
-      "subject": "킹스에코텍",
-      "action": "신규 진입 업체 특허·이력 확인, 요주의 리스트 등록 검토"
-    },
-    {
-      "text": "도로 공종이 직전 7일 6건 → 최근 7일 10건으로 ▲67% 증가했습니다.",
+      "text": "도로 공종이 직전 7일 6건 → 최근 7일 21건으로 ▲250% 증가했습니다.",
       "type": "worktype",
       "direction": "up",
       "subject": "도로",
       "action": "해당 공종 영업자료·견적 준비 강화 검토"
     },
     {
-      "text": "명진화학이(가) 직전 7일 3건 → 최근 7일 1건으로 ▼67% 감소했습니다.",
-      "type": "company",
-      "direction": "down",
-      "subject": "명진화학",
-      "action": "특이 조치 불필요, 지속 모니터링"
-    },
-    {
-      "text": "기타 공종이 직전 7일 7건 → 최근 7일 11건으로 ▲57% 증가했습니다.",
+      "text": "기타 공종이 직전 7일 8건 → 최근 7일 18건으로 ▲125% 증가했습니다.",
       "type": "worktype",
       "direction": "up",
       "subject": "기타",
       "action": "해당 공종 영업자료·견적 준비 강화 검토"
     },
     {
-      "text": "🆕 신흥 업체 한양건설이(가) 직전 7일 4건 → 최근 7일 2건으로 ▼50% 감소했습니다 (주요 8개사 밖 요주의 업체).",
-      "type": "emerging",
-      "direction": "down",
-      "subject": "한양건설",
-      "action": "특이 조치 불필요, 지속 모니터링"
-    },
-    {
-      "text": "주차장 공종이 직전 7일 7건 → 최근 7일 10건으로 ▲43% 증가했습니다.",
+      "text": "주차장 공종이 직전 7일 7건 → 최근 7일 15건으로 ▲114% 증가했습니다.",
       "type": "worktype",
       "direction": "up",
       "subject": "주차장",
       "action": "해당 공종 영업자료·견적 준비 강화 검토"
     },
     {
-      "text": "4A시스템이(가) 직전 7일 15건 → 최근 7일 10건으로 ▼33% 감소했습니다.",
-      "type": "company",
-      "direction": "down",
-      "subject": "4A시스템",
-      "action": "특이 조치 불필요, 지속 모니터링"
-    },
-    {
-      "text": "재도장 공종이 직전 7일 22건 → 최근 7일 28건으로 ▲27% 증가했습니다.",
+      "text": "재도장 공종이 직전 7일 20건 → 최근 7일 38건으로 ▲90% 증가했습니다.",
       "type": "worktype",
       "direction": "up",
       "subject": "재도장",
       "action": "해당 공종 영업자료·견적 준비 강화 검토"
+    },
+    {
+      "text": "옥상방수 공종이 직전 7일 25건 → 최근 7일 46건으로 ▲84% 증가했습니다.",
+      "type": "worktype",
+      "direction": "up",
+      "subject": "옥상방수",
+      "action": "해당 공종 영업자료·견적 준비 강화 검토"
+    },
+    {
+      "text": "🆕 신흥 업체 크랙킹이(가) 최근 7일간 새로 3건 등장했습니다 (직전 7일 0건, 주요 8개사 밖 요주의 업체).",
+      "type": "emerging",
+      "direction": "new",
+      "subject": "크랙킹",
+      "action": "신규 진입 업체 특허·이력 확인, 요주의 리스트 등록 검토"
+    },
+    {
+      "text": "🆕 신흥 업체 이기웅이(가) 최근 7일간 새로 4건 등장했습니다 (직전 7일 0건, 주요 8개사 밖 요주의 업체).",
+      "type": "emerging",
+      "direction": "new",
+      "subject": "이기웅",
+      "action": "신규 진입 업체 특허·이력 확인, 요주의 리스트 등록 검토"
+    },
+    {
+      "text": "수퍼크랙실이(가) 직전 7일 3건 → 최근 7일 5건으로 ▲67% 증가했습니다.",
+      "type": "company",
+      "direction": "up",
+      "subject": "수퍼크랙실",
+      "action": "해당 업체 동향 확인, 견적·영업 대응 전략 검토"
+    },
+    {
+      "text": "금영ENC이(가) 직전 7일 5건 → 최근 7일 8건으로 ▲60% 증가했습니다.",
+      "type": "company",
+      "direction": "up",
+      "subject": "금영ENC",
+      "action": "해당 업체 동향 확인, 견적·영업 대응 전략 검토"
+    },
+    {
+      "text": "🆕 신흥 업체 한양건설이(가) 직전 7일 5건 → 최근 7일 3건으로 ▼40% 감소했습니다 (주요 8개사 밖 요주의 업체).",
+      "type": "emerging",
+      "direction": "down",
+      "subject": "한양건설",
+      "action": "특이 조치 불필요, 지속 모니터링"
     }
   ],
-  "commentary": "최근 7일간 전체 공고문 중 POUR 점유율은 7.3%로 직전 7일 대비 1.7%p 하락했으며, 연속 무공고일수는 1일로 집계되었습니다. 옥상방수(129%), 도로(67%), 기타(57%), 주차장(43%), 재도장(27%) 공종이 전반적으로 증가하여 해당 공종의 영업 자료 및 견적 준비 강화가 권장됩니다. 주요 8개사 외 업체 중 신흥 업체 '킹스에코텍'이 새로 4건 등장하여 특허 및 이력 확인과 요주의 리스트 등록 검토가 필요합니다. 반면 명진화학(-67%), 4A시스템(-33%) 등은 공고 수가 감소했습니다. 한양건설은 직전 4건에서 최근 2건으로 감소했으나, 공종별 증감과 신흥 업체의 등장 간 직접적인 연관성은 확실하지 않아 추가 확인이 필요합니다.",
+  "commentary": "최근 7일간 전체 POUR 점유율은 8.0%에서 7.6%로 소폭 하락했으나 연속 무공고일 수는 0일로 집계되었습니다.\n\n공종별로는 도로(▲250%), 기타(▲125%), 주차장(▲114%), 재도장(▲90%), 옥상방수(▲84%) 공종의 공고문이 전반적으로 큰 폭으로 증가하여 해당 부문의 영업 및 견적 준비 강화가 권장됩니다.\n\n주요 업체 동향으로는 수퍼크랙실(▲67%)과 금영ENC(▲60%)의 공고가 증가했고, 신흥 업체인 '크랙킹'(3건)과 '이기웅'(4건)이 신규 진입하여 요주의 리스트 등록 검토가 필요합니다.\n\n다만, 신흥 업체 '한양건설'은 5건에서 3건으로 ▼40% 감소하여 특이 조치 없이 지속 모니터링만 요구됩니다. 공종 급증과 신흥 업체의 진입 간의 직접적인 연관성은 데이터만으로 확인되지 않아 추가 확인이 필요합니다.",
   "competitor_watch_trends": [
     {
       "company": "4A시스템",
-      "summary": "4A시스템은 '에코크랙실 공법', 'SRU우레탄', '4A 듀러블페인트' 등 아파트 도장 및 방수 분야의 다양한 스마트 특허 기술과 공인된 시험성적(인장강도, 신장률, 부착강도 등)을 보유하며 관련 제품을 적극적으로 마케팅하고 있습니다.",
-      "action": "4A시스템이 보유한 에코크랙실 및 SRU우레탄 등 공인된 시험성적 결과(인장·신장·부착 강도)와 비교하여, 당사 POUR 공법만의 차별화된 물리적 성능 지표와 내구성 우수성을 강조하는 기술 마케팅 자료를 보완해야 합니다.",
-      "note": "에코크랙실 공법 시험성적 및 SRU우레탄, 4A듀러블페인트 등 방수·도장 특허공법 관련 내용 확인",
+      "summary": "4A시스템은 에코크랙실 공법, SRE에폭시, SRU우레탄, 4A듀러블페인트 등 아파트 도장·방수 분야의 다양한 스마트 특허 기술과 시험 성적을 확보하고 사업을 전개하고 있습니다.",
+      "action": "4A시스템이 보유한 에코크랙실 및 SRU우레탄 등 주요 방수·균열 보수 공법의 공인 성적과 시공 실적을 벤치마킹하여, 우리 POUR 공법의 물성 및 내구성 차별점을 강조할 수 있는 기술적 우위 요소를 점검하세요.",
+      "note": "4A시스템의 에코크랙실, 우레탄, 페인트 및 각종 특허 방수 공법 관련 검색 결과 참고",
       "sources": [
         {
           "title": "4a시스템 특허공법 : 에코크랙실 공법",
           "url": "https://4asystem.com/pt_cw01"
         },
         {
+          "title": "4a시스템 특허공법 : 창틀 방수 공법",
+          "url": "https://4asystem.com/pt_cw05_06"
+        },
+        {
           "title": "4a시스템 특허공법 : SRU우레탄",
           "url": "https://4asystem.com/pt_cw03"
+        },
+        {
+          "title": "4a시스템 특허공법 : 4A듀러블페인트",
+          "url": "https://4asystem.com/pt_rt01"
+        },
+        {
+          "title": "4a시스템 특허공법",
+          "url": "https://4asystem.com/pt"
         }
       ]
     },
@@ -123,6 +142,41 @@
     },
     {
       "company": "수퍼크랙실",
+      "summary": "수퍼크랙실은 완벽한 부착성과 융착성을 가진 고탄성 퍼티 등 균열보수 공법을 국산화하여 10년 이상 우수하게 유지된 실적을 바탕으로 공동주택관리산업박람회 등에 참여하며 경쟁력을 알리고 있습니다.",
+      "action": "수퍼크랙실의 장기 유지 관리 실적(10년 이상) 및 고탄성 퍼티 기반 균열 보수 공법에 대응하여, 우리 POUR 공법의 장기 내구성 및 시공 신뢰성을 입증할 수 있는 유지관리 레퍼런스를 보강하세요.",
+      "note": "수퍼크랙실의 공동주택관리산업박람회 참가 및 고탄성 퍼티 균열보수 관련 검색 결과 참고",
+      "sources": [
+        {
+          "title": "2025 공동주택관리산업박람회, 최신 관리기법 수놓았다",
+          "url": "http://www.aptn.co.kr/news/articleView.html?idxno="
+        },
+        {
+          "title": "“아파트 외벽 균열 보수 44년 외길, 특허공법 9개 고안”",
+          "url": "https://www.hapt.co.kr/news/articleView.html?idxno="
+        }
+      ]
+    },
+    {
+      "company": "크랙킹",
+      "summary": "킹스에코텍(크랙킹)은 자재 특허 공법 10개를 바탕으로 품질과 가성비를 내세우며 친환경 유지보수 자재 개발과 시공에 주력하고 있습니다.",
+      "action": "킹스에코텍의 친환경 유지보수 자재 및 다수 특허 공법 확보 전략에 대응하여, 우리 POUR 공법의 친환경성 및 가성비 측면의 경쟁 우위 요소를 발굴해 마케팅에 활용하세요.",
+      "note": "크랙킹 관련 킹스에코텍의 특허 공법 및 친환경 유지보수 자재 개발 검색 결과 참고",
+      "sources": [
+        {
+          "title": "크랙킹 등 자재 특허 공법 10개…“품질･가성비 모두 잡아”",
+          "url": "https://www.hapt.co.kr/news/articleView.html?idxno="
+        }
+      ]
+    },
+    {
+      "company": "이기웅",
+      "summary": "건설 특허공법 시장 경쟁사와 무관한 대학의 산학협력 및 한방방향제 관련 특허 등록 건만 검색되었습니다.",
+      "action": "당해 검색 결과는 건설 특허공법 시장과 무관하므로 별도의 시장 대응 조치는 불필요합니다.",
+      "note": "관련 검색 결과 없음",
+      "sources": []
+    },
+    {
+      "company": "한양건설",
       "summary": "최근 특이 동향이 검색되지 않았습니다.",
       "action": "특이 조치 불필요, 지속 모니터링",
       "note": "관련 검색 결과 없음",
@@ -131,33 +185,33 @@
   ],
   "competitor_watch_model": "gemini-3.5-flash-lite",
   "customer_journey_funnel": {
-    "total_cases": 1224,
-    "total_source_rows": 1773,
+    "total_cases": 1238,
+    "total_source_rows": 1792,
     "excluded_test_rows": 33,
     "excluded_company_rows": 206,
     "excluded_company_names": [
       "넷폼알앤디",
       "포어솔루션"
     ],
-    "skipped_rows_no_category": 1,
+    "skipped_rows_no_category": 0,
     "categories": [
       {
         "key": "l2_only",
         "label": "문의(L2)에서 끝남",
-        "count": 580,
-        "pct": 47.4
+        "count": 584,
+        "pct": 47.2
       },
       {
         "key": "l3_pending",
         "label": "컨설팅/PT(L3)까지 진행 · 이후 미상",
-        "count": 185,
-        "pct": 15.1
+        "count": 188,
+        "pct": 15.2
       },
       {
         "key": "l4_pending",
         "label": "공고(L4) 진행중 · 결과 대기",
-        "count": 45,
-        "pct": 3.7
+        "count": 50,
+        "pct": 4
       },
       {
         "key": "lost_bid_failed",
@@ -168,30 +222,30 @@
       {
         "key": "lost_to_competitor",
         "label": "타사(타공법)로 낙찰",
-        "count": 27,
-        "pct": 2.2
+        "count": 29,
+        "pct": 2.3
       },
       {
         "key": "won",
         "label": "POUR 낙찰 성공",
         "count": 356,
-        "pct": 29.1
+        "pct": 28.8
       }
     ],
-    "total_company_cases": 1209,
+    "total_company_cases": 1219,
     "company_case_key_method": "apt_name__addr__worktype__company_name",
     "categories_by_company_case": [
       {
         "key": "l2_only",
         "label": "문의(L2)에서 끝남",
-        "count": 635,
+        "count": 640,
         "pct": 52.5
       },
       {
         "key": "l3_pending",
         "label": "컨설팅/PT(L3)까지 진행 · 이후 미상",
-        "count": 190,
-        "pct": 15.7
+        "count": 193,
+        "pct": 15.8
       },
       {
         "key": "l4_pending",
@@ -208,43 +262,43 @@
       {
         "key": "lost_to_competitor",
         "label": "타사(타공법)로 낙찰",
-        "count": 27,
-        "pct": 2.2
+        "count": 29,
+        "pct": 2.4
       },
       {
         "key": "won",
         "label": "POUR 낙찰 성공",
         "count": 357,
-        "pct": 29.5
+        "pct": 29.3
       }
     ],
     "by_region": [
       {
         "label": "경기",
-        "total": 469,
-        "dropout": 284,
-        "dropout_pct": 60.6,
-        "won": 137,
-        "won_pct": 29.2,
+        "total": 478,
+        "dropout": 289,
+        "dropout_pct": 60.5,
+        "won": 139,
+        "won_pct": 29.1,
         "lost_to_competitor": 16
       },
       {
         "label": "서울",
-        "total": 224,
+        "total": 225,
         "dropout": 134,
-        "dropout_pct": 59.8,
-        "won": 67,
-        "won_pct": 29.9,
-        "lost_to_competitor": 6
+        "dropout_pct": 59.6,
+        "won": 66,
+        "won_pct": 29.3,
+        "lost_to_competitor": 7
       },
       {
         "label": "인천",
-        "total": 86,
-        "dropout": 61,
-        "dropout_pct": 70.9,
-        "won": 22,
-        "won_pct": 25.6,
-        "lost_to_competitor": 1
+        "total": 85,
+        "dropout": 60,
+        "dropout_pct": 70.6,
+        "won": 21,
+        "won_pct": 24.7,
+        "lost_to_competitor": 2
       },
       {
         "label": "충남",
@@ -256,21 +310,21 @@
         "lost_to_competitor": 0
       },
       {
-        "label": "기타/확인필요",
-        "total": 66,
-        "dropout": 66,
-        "dropout_pct": 100,
-        "won": 0,
-        "won_pct": 0,
+        "label": "경남",
+        "total": 67,
+        "dropout": 29,
+        "dropout_pct": 43.3,
+        "won": 29,
+        "won_pct": 43.3,
         "lost_to_competitor": 0
       },
       {
-        "label": "경남",
-        "total": 64,
-        "dropout": 27,
-        "dropout_pct": 42.2,
-        "won": 29,
-        "won_pct": 45.3,
+        "label": "기타/확인필요",
+        "total": 67,
+        "dropout": 67,
+        "dropout_pct": 100,
+        "won": 0,
+        "won_pct": 0,
         "lost_to_competitor": 0
       },
       {
@@ -295,8 +349,8 @@
     "by_worktype": [
       {
         "label": "균열보수및재도장",
-        "total": 325,
-        "dropout": 325,
+        "total": 327,
+        "dropout": 327,
         "dropout_pct": 100,
         "won": 0,
         "won_pct": 0,
@@ -304,17 +358,17 @@
       },
       {
         "label": "재도장",
-        "total": 134,
+        "total": 135,
         "dropout": 0,
         "dropout_pct": 0,
         "won": 103,
-        "won_pct": 76.9,
-        "lost_to_competitor": 8
+        "won_pct": 76.3,
+        "lost_to_competitor": 9
       },
       {
         "label": "슁글",
-        "total": 89,
-        "dropout": 89,
+        "total": 90,
+        "dropout": 90,
         "dropout_pct": 100,
         "won": 0,
         "won_pct": 0,
@@ -322,8 +376,8 @@
       },
       {
         "label": "듀얼",
-        "total": 88,
-        "dropout": 88,
+        "total": 90,
+        "dropout": 90,
         "dropout_pct": 100,
         "won": 0,
         "won_pct": 0,
@@ -340,11 +394,11 @@
       },
       {
         "label": "에폭시",
-        "total": 61,
+        "total": 62,
         "dropout": 44,
-        "dropout_pct": 72.1,
+        "dropout_pct": 71,
         "won": 12,
-        "won_pct": 19.7,
+        "won_pct": 19.4,
         "lost_to_competitor": 1
       },
       {
@@ -358,11 +412,11 @@
       },
       {
         "label": "슬라브",
-        "total": 51,
+        "total": 50,
         "dropout": 0,
         "dropout_pct": 0,
         "won": 43,
-        "won_pct": 84.3,
+        "won_pct": 86,
         "lost_to_competitor": 2
       }
     ],
@@ -371,7 +425,7 @@
       "as_of_date": "2026-08-28",
       "window_days": 30,
       "min_sample": 15,
-      "overall_dropout_pct": 68.2,
+      "overall_dropout_pct": 68.3,
       "leaderboard": [
         {
           "company": "삼우건설㈜",
@@ -400,9 +454,20 @@
           "total": 44,
           "dropout": 28,
           "dropout_pct": 63.6,
+          "won": 5,
+          "won_pct": 11.4,
+          "lost_to_competitor": 11,
+          "l4_pending": 0,
+          "stale_l4": 0
+        },
+        {
+          "company": "㈜석민이앤씨",
+          "total": 44,
+          "dropout": 38,
+          "dropout_pct": 86.4,
           "won": 6,
           "won_pct": 13.6,
-          "lost_to_competitor": 10,
+          "lost_to_competitor": 0,
           "l4_pending": 0,
           "stale_l4": 0
         },
@@ -413,17 +478,6 @@
           "dropout_pct": 60.5,
           "won": 17,
           "won_pct": 39.5,
-          "lost_to_competitor": 0,
-          "l4_pending": 0,
-          "stale_l4": 0
-        },
-        {
-          "company": "㈜석민이앤씨",
-          "total": 43,
-          "dropout": 37,
-          "dropout_pct": 86,
-          "won": 6,
-          "won_pct": 14,
           "lost_to_competitor": 0,
           "l4_pending": 0,
           "stale_l4": 0
@@ -591,9 +645,9 @@
         },
         {
           "company": "㈜부영씨엔씨",
-          "total": 14,
-          "dropout": 13,
-          "dropout_pct": 92.9
+          "total": 15,
+          "dropout": 14,
+          "dropout_pct": 93.3
         },
         {
           "company": "㈜국일구조",
@@ -606,14 +660,14 @@
       "stale_l4_days": 45,
       "dropout_anomaly_min_sample": 10,
       "dropout_anomaly_gap": 20,
-      "implausible_dates_excluded": 10
+      "implausible_dates_excluded": 11
     },
     "reuse_l2_60d": {
       "window_days": 60,
       "case_key_method": "apt_name__addr__worktype (업체명 제외 — 같은 업체 내 \"다른 현장\"을 구분하는 키)",
-      "companies_with_l3plus_experience": 131,
-      "reused_within_window": 67,
-      "reuse_rate_pct": 51.1,
+      "companies_with_l3plus_experience": 132,
+      "reused_within_window": 68,
+      "reuse_rate_pct": 51.5,
       "reused_company_sample": [
         "대하씨엔디㈜",
         "삼우건설㈜",
@@ -645,19 +699,19 @@
           "key": "l2_l3",
           "label": "④ L2→L3 요청 전환율",
           "value_pct": 47.5,
-          "sample_note": "업체 단위 1209건 중 L2 이후로 진행한 비율"
+          "sample_note": "업체 단위 1219건 중 L2 이후로 진행한 비율"
         },
         {
           "key": "l3_l4",
           "label": "⑤ L3→L4 공고 반영률",
           "value_pct": 71.3,
-          "sample_note": "현장 단위 L3 이상 도달 644건 중 L4 이상으로 이어진 비율"
+          "sample_note": "현장 단위 L3 이상 도달 654건 중 L4 이상으로 이어진 비율"
         },
         {
           "key": "reuse_60d",
           "label": "⑥ 60일 재사용 L2율",
-          "value_pct": 51.1,
-          "sample_note": "L3+ 경험 업체 131개사 중 재사용 비율"
+          "value_pct": 51.5,
+          "sample_note": "L3+ 경험 업체 132개사 중 재사용 비율"
         }
       ],
       "not_compared_note": "①90일 활성 협력사율·②첫 L2 도달은 협약업체 마스터 데이터가 파이프라인에 아직 연결되지 않아 이 비교에 포함되지 않음(수동 계산치만 존재). ③⑦은 미산출. ⑧은 시장 결과 층위라 별도.",
@@ -665,7 +719,7 @@
         "key": "l2_l3",
         "label": "④ L2→L3 요청 전환율",
         "value_pct": 47.5,
-        "sample_note": "업체 단위 1209건 중 L2 이후로 진행한 비율",
+        "sample_note": "업체 단위 1219건 중 L2 이후로 진행한 비율",
         "means_low": "현장은 있으나 고객 설득·가격·기술 신뢰를 만들 다음 지원으로 못 넘어감",
         "action_lever": "L2 시점에 맞춤 비교표, AI 실행견적, 샘플, PT 체크리스트, 현장검토 중 하나를 자동/선택형으로 제안",
         "supporting_metric": "도움 선택률, 선택유형별 지원 수락률, 지원 후 14일 L3 요청",
@@ -675,66 +729,67 @@
     "apartment_id_quality": {
       "case_key_method": "text_based_v19_pending_apt_id_fix",
       "apt_id_column_found": true,
-      "distinct_apt_ids": 911,
-      "colliding_apt_ids": 229,
+      "distinct_apt_ids": 912,
+      "colliding_apt_ids": 237,
       "collision_examples": [
         {
           "apt_id": "2650010100109790072000579",
           "names": [
             "현대한누리타운",
-            "힐스테이트 광산아파트"
+            "진영자이아파트"
           ]
         },
         {
           "apt_id": "2671032025111990000000014",
           "names": [
             "정관 센트럴 파크",
-            "봉선지웰아파트"
+            "양우내안애 아파트"
           ]
         },
         {
           "apt_id": "4145011600104310002000001",
           "names": [
             "위례그린파크 푸르지오",
-            "백현마을롯데캐슬아파트"
+            "도래울센트럴파크아파트"
           ]
         },
         {
           "apt_id": "2920011500107570003018091",
           "names": [
             "첨단동부아파트",
-            "대광오투빌아파트"
+            "천안백석2차아이파크 아파트"
           ]
         },
         {
           "apt_id": "4146510500102160000200003",
           "names": [
             "신봉마을 동부센트레빌 5단지",
-            "한마을아파트",
             "어울림 아파트",
-            "동백역 경남아너스빌 아파트",
-            "금호시영1단지 아파트",
-            "아시아선수촌아파트"
+            "삼환아파트",
+            "모아아파트",
+            "현대아파트",
+            "동아1차아파트",
+            "신도림 현대아파트"
           ]
         },
         {
           "apt_id": "2723011100105000001007089",
           "names": [
             "산격대우아파트",
-            "범양아파트"
+            "벽산아파트"
           ]
         },
         {
           "apt_id": "4128112000102980000010340",
           "names": [
             "한라비발디아파트",
-            "신방한라비발디 아파트",
-            "동탄2아이파크A100블럭아파트",
-            "독립문극동아파트",
-            "신봉동부센트레빌6단지아파트",
-            "금호시영1단지 아파트",
-            "동탄역시범한화꿈에그린프레스티지아파트",
-            "고양아크비즈 지식산업센터"
+            "호평현대아이파크아파트",
+            "현대슈퍼빌(주상복합)",
+            "소하동양2차",
+            "포레스트 힐 아파트",
+            "대림한숲아파트",
+            "동남4차아파트",
+            "상계주공14단지아파트"
           ]
         },
         {
@@ -742,143 +797,149 @@
           "names": [
             "동아1차아파트",
             "롯데 캐슬 멤버스",
-            "동탄중흥에스클래스파크더테라스"
+            "경기 고양시 덕양구 향동로 218"
           ]
         },
         {
           "apt_id": "4117310100111040000005091",
           "names": [
             "은하수청구아파트",
-            "한일아파트",
-            "천안성환e편한세상아파트"
+            "상암월드컵파크 3단지"
           ]
         },
         {
           "apt_id": "4136011000100020001012614",
           "names": [
             "플루리움",
-            "정릉중앙하이츠빌2단지아파트"
+            "삼일원앙아파트"
           ]
         }
       ]
     }
   },
-  "journey_funnel_commentary": "건설 특허공법(POUR) 영업 퍼널 데이터 분석 결과, 전체 1,224건 중 문의(L2) 단계에서 580건(47.4%), 컨설팅(L3) 이후 상태 불명 185건(15.1%)으로 주요 이탈이 확인되었습니다. 지역별로는 표본 15건 이상인 광주 지역의 이탈률이 71.7%(53건 중 38건)로 가장 높아 실무진의 우선적인 점검이 필요합니다. 다만 데이터만으로는 구체적인 이탈 원인을 알 수 없으므로 실제 원인은 현장에서 '확인 필요'로 다루어야 합니다. 주소 데이터 오류로 지역 판별이 불가한 66건이 존재하며, 공종명은 단계별 표기 방식의 불일치로 인해 이번 분석에서 공종별 순위나 결론은 배제했습니다. 협력사 측면에서는 ㈜이루미건설(100%)과 ㈜풍전이엔씨(100%)의 이탈률이 전체 평균(68.2%)보다 유난히 높고, 최근 30일간 ㈜기림이앤씨와 코지건설㈜의 활동이 0건으로 감소한 반면 ㈜은성이엔씨는 133% 증가하여 영업 및 현장 관리 차원에서 원인 확인이 필요합니다.",
+  "journey_funnel_commentary": "전체 1,238건 중 문의 단계에서 끝난 건이 584건(47.2%), 컨설팅/PT 이후 상태 불명이 188건(15.2%)으로 확인되었습니다. 지역별로는 표본 15건 이상인 광주 지역의 이탈률이 71.7%로 가장 높고, 가장 비중이 큰 경기 지역(478건) 역시 이탈률이 60.5%에 달해 실무진이 해당 지역들의 영업 정체 구간을 우선적으로 들여다볼 필요가 있습니다. 다만, 주소 데이터 오류(67건)와 문의·컨설팅 단계와 공고·낙찰 단계 간 '공종명' 표기 불일치가 있어 데이터만으로는 정확한 이탈 원인이나 공종별 성과를 단정할 수 없으므로 사실관계의 확인이 필요합니다. 협력사 측면에서는 ㈜이루미건설(21건)과 ㈜풍전이엔씨(10건)의 이탈률이 100%로 나타났고, ㈜기림이앤씨와 코지건설㈜의 활동이 최근 30일간 0건으로 급감한 반면 ㈜은성이엔씨는 활동이 133% 증가하여 영업 및 현장 관리 차원에서 협력사별 현황 점검이 권장됩니다.",
   "journey_funnel_model": "gemini-3.5-flash-lite",
   "monthly_period": {
     "latest": "2026-08",
     "prev": "2026-07",
     "latest_month_complete": false,
-    "comparison_note": "이번 달(2026-08)은 26일까지만 집계된 상태라, 공정한 비교를 위해 전월(2026-07)도 1~26일 데이터만 사용해 비교했습니다. 이번 달이 아직 끝나지 않았다는 점을 감안해 해석해주세요."
+    "comparison_note": "이번 달(2026-08)은 27일까지만 집계된 상태라, 공정한 비교를 위해 전월(2026-07)도 1~27일 데이터만 사용해 비교했습니다. 이번 달이 아직 끝나지 않았다는 점을 감안해 해석해주세요."
   },
   "composition_model": "gemini-3.5-flash-lite",
   "composition_highlights": [
     {
-      "text": "다특허 구분 공고가 전월 동기간(1~26일) 16건 → 이번 달 33건으로 ▲106% 증가했습니다.",
+      "text": "와이제이종합건설 주식회사가 전월 동기간(1~27일) 6건 → 이번 달 15건으로 ▲150% 증가했습니다.",
+      "type": "company_m",
+      "direction": "up",
+      "subject": "와이제이종합건설 주식회사",
+      "action": "해당 업체 월간 증가 동향 확인, 견적·영업 대응 전략 검토"
+    },
+    {
+      "text": "다특허 구분 공고가 전월 동기간(1~27일) 16건 → 이번 달 38건으로 ▲138% 증가했습니다.",
       "type": "category",
       "direction": "up",
       "subject": "다특허",
       "action": "해당 구분 비중 확대 배경 확인, 관련 영업자료 보강 검토"
     },
     {
-      "text": "옥상방수 공종이 전월 동기간(1~26일) 67건 → 이번 달 114건으로 ▲70% 증가했습니다.",
+      "text": "도로 공종이 전월 동기간(1~27일) 23건 → 이번 달 42건으로 ▲83% 증가했습니다.",
+      "type": "worktype_m",
+      "direction": "up",
+      "subject": "도로",
+      "action": "해당 공종 월간 수요 증가 — 영업자료·견적 준비 강화 검토"
+    },
+    {
+      "text": "옥상방수 공종이 전월 동기간(1~27일) 73건 → 이번 달 130건으로 ▲78% 증가했습니다.",
       "type": "worktype_m",
       "direction": "up",
       "subject": "옥상방수",
       "action": "해당 공종 월간 수요 증가 — 영업자료·견적 준비 강화 검토"
     },
     {
-      "text": "일반 구분 공고가 전월 동기간(1~26일) 112건 → 이번 달 170건으로 ▲52% 증가했습니다.",
+      "text": "일반 구분 공고가 전월 동기간(1~27일) 115건 → 이번 달 196건으로 ▲70% 증가했습니다.",
       "type": "category",
       "direction": "up",
       "subject": "일반",
       "action": "해당 구분 비중 확대 배경 확인, 관련 영업자료 보강 검토"
     },
     {
-      "text": "명진화학이 전월 동기간(1~26일) 6건 → 이번 달 9건으로 ▲50% 증가했습니다.",
+      "text": "명진화학이 전월 동기간(1~27일) 6건 → 이번 달 10건으로 ▲67% 증가했습니다.",
       "type": "company_m",
       "direction": "up",
       "subject": "명진화학",
       "action": "해당 업체 월간 증가 동향 확인, 견적·영업 대응 전략 검토"
     },
     {
-      "text": "수퍼크랙실이 전월 동기간(1~26일) 17건 → 이번 달 10건으로 ▼41% 감소했습니다.",
-      "type": "company_m",
-      "direction": "down",
-      "subject": "수퍼크랙실",
-      "action": "특이 조치 불필요, 지속 모니터링"
-    },
-    {
-      "text": "도로 공종이 전월 동기간(1~26일) 23건 → 이번 달 32건으로 ▲39% 증가했습니다.",
-      "type": "worktype_m",
-      "direction": "up",
-      "subject": "도로",
-      "action": "해당 공종 월간 수요 증가 — 영업자료·견적 준비 강화 검토"
-    },
-    {
-      "text": "타사 구분 공고가 전월 동기간(1~26일) 191건 → 이번 달 261건으로 ▲37% 증가했습니다.",
+      "text": "타사 구분 공고가 전월 동기간(1~27일) 202건 → 이번 달 312건으로 ▲54% 증가했습니다.",
       "type": "category",
       "direction": "up",
       "subject": "타사",
       "action": "해당 구분 비중 확대 배경 확인, 관련 영업자료 보강 검토"
     },
     {
-      "text": "4A시스템이 전월 동기간(1~26일) 31건 → 이번 달 42건으로 ▲35% 증가했습니다.",
+      "text": "4A시스템이 전월 동기간(1~27일) 32건 → 이번 달 48건으로 ▲50% 증가했습니다.",
       "type": "company_m",
       "direction": "up",
       "subject": "4A시스템",
       "action": "해당 업체 월간 증가 동향 확인, 견적·영업 대응 전략 검토"
     }
   ],
-  "composition_commentary": "이번 달(2026-08) 데이터는 26일까지 집계된 상태이므로 전월(2026-07)도 동일 기간(1~26일)과 비교하여 분석했습니다. 옥상방수(▲70%)와 도로(▲39%) 공종의 수요가 증가함에 따라 관련 영업자료와 견적 준비를 강화할 필요가 있습니다. 또한, 명진화학(▲50%)과 4A시스템(▲35%)의 공고 건수가 증가했으며, 수퍼크랙실(▼41%)은 감소했으나 이는 진행 중인 집계 기간의 특성을 고려해 지속 모니터링이 권장됩니다. 다특허·일반·타사 구분 공고가 모두 증가세를 보였으나, 이러한 비중 확대 배경은 추가 확인이 필요합니다.",
+  "composition_commentary": "이번 달 27일까지의 집계 데이터를 전월 동기간과 비교한 결과, 공종별·업체별 공고가 전반적으로 증가세를 보이고 있습니다. 특히 옥상방수 공종이 73건에서 130건으로 ▲78%, 도로 공종이 23건에서 42건으로 ▲83% 증가하여 관련 수요가 늘어난 것으로 확인됩니다. 업체별로는 와이제이종합건설(▲150%), 명진화학(▲67%), 4A시스템(▲50%)의 공고가 각각 증가했습니다. 다만 이번 달이 아직 끝나지 않은 상태의 잠정 집계인 점을 감안할 때, 증가 폭을 최종 실적으로 단정하기보다는 해당 공종의 견적 준비 강화와 업체별 동향에 대한 추가 확인이 필요합니다.",
   "rawdata_model": "gemini-3.5-flash-lite",
   "rawdata_highlights": [
     {
-      "text": "전체 공고 건수가 전월 동기간(1~26일)(2026-07) 356건 → 이번 달(2026-08) 510건으로 ▲43% 증가했습니다.",
+      "text": "전체 공고 건수가 전월 동기간(1~27일)(2026-07) 372건 → 이번 달(2026-08) 600건으로 ▲61% 증가했습니다.",
       "type": "monthly_total",
       "direction": "up",
       "subject": null,
       "action": "월간 물량 증가 대응 — 인력·자원 배분 점검"
     }
   ],
-  "rawdata_commentary": "건설 특허공법(POUR) 시장의 2026년 8월 1일~26일 기준 전체 공고 건수는 510건으로, 전월 동기간(356건) 대비 약 43% 증가했습니다. 단, 이번 달 데이터는 26까지만 집계된 상태이므로 최종 월말 물량은 변동될 수 있음을 감안하여 해석해야 합니다. 물량이 증가함에 따라 규칙상 권장 조치인 인력 및 자원 배분 상황에 대한 점검이 필요합니다.",
+  "rawdata_commentary": "건설 특허공법(POUR) 시장의 2026년 8월 데이터 분석 보고를 드립니다. \n\n1~27일 누적 기준 전체 공고 건수는 전월 372건에서 이번 달 600건으로 약 61% 증가했습니다. 단, 이번 달이 27일까지만 집계된 잠정 데이터라는 점을 감안하여 해석할 필요가 있습니다. 물량이 크게 늘어난 만큼, 실무진에서는 이에 대비한 인력 및 자원 배분 상황을 선제적으로 점검하시기 바랍니다.",
   "yoy_period": {
     "latest": "2026-08",
     "yoy": "2025-08",
-    "comparison_note": "이번 달(2026-08)은 26일까지만 집계된 상태라, 공정한 비교를 위해 작년 같은 달(2025-08)도 1~26일 데이터만 사용해 비교했습니다. 이번 달이 아직 끝나지 않았다는 점을 감안해 해석해주세요."
+    "comparison_note": "이번 달(2026-08)은 27일까지만 집계된 상태라, 공정한 비교를 위해 작년 같은 달(2025-08)도 1~27일 데이터만 사용해 비교했습니다. 이번 달이 아직 끝나지 않았다는 점을 감안해 해석해주세요."
   },
   "yoy_model": "gemini-3.5-flash-lite",
   "yoy_highlights": [
     {
-      "text": "기타 공종이 작년 같은 기간(2025-08 1~26일) 23건 → 이번 달 35건으로 ▲52% 증가했습니다.",
+      "text": "기타 공종이 작년 같은 기간(2025-08 1~27일) 28건 → 이번 달 44건으로 ▲57% 증가했습니다.",
       "type": "yoy_worktype",
       "direction": "up",
       "subject": "기타",
       "action": null
     },
     {
-      "text": "일반 구분 공고가 작년 같은 기간(2025-08 1~26일) 136건 → 이번 달 170건으로 ▲25% 증가했습니다.",
-      "type": "yoy_category",
-      "direction": "up",
-      "subject": "일반",
-      "action": null
-    },
-    {
-      "text": "도로 공종이 작년 같은 기간(2025-08 1~26일) 26건 → 이번 달 32건으로 ▲23% 증가했습니다.",
+      "text": "도로 공종이 작년 같은 기간(2025-08 1~27일) 30건 → 이번 달 42건으로 ▲40% 증가했습니다.",
       "type": "yoy_worktype",
       "direction": "up",
       "subject": "도로",
       "action": null
     },
     {
-      "text": "다특허 구분 공고가 작년 같은 기간(2025-08 1~26일) 27건 → 이번 달 33건으로 ▲22% 증가했습니다.",
+      "text": "일반 구분 공고가 작년 같은 기간(2025-08 1~27일) 147건 → 이번 달 196건으로 ▲33% 증가했습니다.",
+      "type": "yoy_category",
+      "direction": "up",
+      "subject": "일반",
+      "action": null
+    },
+    {
+      "text": "다특허 구분 공고가 작년 같은 기간(2025-08 1~27일) 29건 → 이번 달 38건으로 ▲31% 증가했습니다.",
       "type": "yoy_category",
       "direction": "up",
       "subject": "다특허",
       "action": null
+    },
+    {
+      "text": "전체 공고 건수가 작년 같은 기간(2025-08 1~27일) 496건 → 이번 달(2026-08) 600건으로 ▲21% 증가했습니다.",
+      "type": "yoy_total",
+      "direction": "up",
+      "subject": null,
+      "action": null
     }
   ],
-  "yoy_commentary": "2026년 8월 26일 기준 누적 집계를 작년 동기(2025년 8월 1~26일)와 비교한 결과, 전체적으로 공고 건수가 증가세를 보이고 있습니다. 일반 구분 공고가 25%(136건→170건) 증가하며 가장 큰 폭의 물량 상승을 이끌었고, 도로 공종(23%)과 다특허 구분 공고(22%), 기타 공종(52%)도 동반 상승했습니다. 다만 이번 달 데이터는 26일까지만 집계된 상태이므로 최종 월말 마감까지의 추이는 추가 확인이 필요합니다.",
+  "yoy_commentary": "2026년 8월(1~27일 집계 기준) 전체 공고 건수는 600건으로 작년 동기 대비 21% 증가했습니다. \n특히 일반 구분 공고(33%↑)와 다특허 구분 공고(31%↑)가 모두 늘었으며, 공종별로는 기타 공종(57%↑)과 도로 공종(40%↑)의 증가세가 두드러졌습니다. \n다만 이번 달 데이터가 아직 27까지만 집계된 상태이므로, 남은 기간의 추이를 조금 더 지켜볼 필요가 있습니다.",
   "trend_period": {
     "span_weeks": 4,
     "recent_weeks": [
@@ -889,73 +950,73 @@
       "2026-06-29",
       "2026-07-20"
     ],
-    "comparison_note": "이번 주는 아직 진행 중이라 완결된 최근 주 단위로만 비교했습니다(최신 데이터 기준일 2026-08-26)."
+    "comparison_note": "이번 주는 아직 진행 중이라 완결된 최근 주 단위로만 비교했습니다(최신 데이터 기준일 2026-08-27)."
   },
   "trend_model": "gemini-3.5-flash-lite",
   "trend_highlights": [
     {
-      "text": "다특허 공고가 직전 4주 18건 → 최근 4주 36건으로 ▲100% 증가했습니다.",
+      "text": "다특허 공고가 직전 4주 18건 → 최근 4주 34건으로 ▲89% 증가했습니다.",
       "type": "trend_cat",
       "direction": "up",
       "subject": "다특허",
       "action": "해당 구분 최근 주간 증가 추세 — 영업자료·인력 배분 점검"
     },
     {
-      "text": "일반 공고가 직전 4주 126건 → 최근 4주 178건으로 ▲41% 증가했습니다.",
+      "text": "일반 공고가 직전 4주 126건 → 최근 4주 174건으로 ▲38% 증가했습니다.",
       "type": "trend_cat",
       "direction": "up",
       "subject": "일반",
       "action": "해당 구분 최근 주간 증가 추세 — 영업자료·인력 배분 점검"
     },
     {
-      "text": "타사 공고가 직전 4주 215건 → 최근 4주 296건으로 ▲38% 증가했습니다.",
+      "text": "타사 공고가 직전 4주 215건 → 최근 4주 292건으로 ▲36% 증가했습니다.",
       "type": "trend_cat",
       "direction": "up",
       "subject": "타사",
       "action": "해당 구분 최근 주간 증가 추세 — 영업자료·인력 배분 점검"
     }
   ],
-  "trend_commentary": "최근 4주간 다특허 공고가 100%(18건→36건), 일반 공고가 41%(126건→178건), 타사 공고가 38%(215건→296건) 증가한 것으로 집계되었습니다. 이번 주는 아직 진행 중인 기간임을 고려할 때, 이들 부문에서 전반적인 물량 흐름이 증가세를 보이고 있어 영업자료와 인력 배분의 점검이 권장됩니다. 이들 증가 추세 간의 직접적인 연관성은 본 데이터만으로는 확실하지 않으므로 추가 확인이 필요합니다.",
+  "trend_commentary": "직전 4주 대비 최근 4주간 다특허 공고는 18건에서 34건으로 89%, 일반 공고는 126건에서 174건으로 38%, 타사 공고는 215건에서 292건으로 36% 증가했습니다. \n\n이번 주 데이터는 아직 진행 중인 상태에서 집계된 것이므로, 해당 증가 폭을 최종 결과로 단정하기보다는 최근 주간의 추세로 참고하여 영업자료와 인력 배분을 점검하시기 바랍니다. \n\n이들 공고 증가세 간의 상호 연관성은 현재 데이터만으로는 확실하지 않으므로 추가 확인이 필요합니다.",
   "forecast_monthly": {
     "latestYm": "2026-08",
-    "latestDay": 26,
+    "latestDay": 27,
     "totalDaysThisMonth": 31,
     "isMonthComplete": false,
     "soFarThisMonth": {
-      "POUR": 42,
-      "다특허": 33,
-      "DO": 3,
-      "CNC": 1,
-      "일반": 170,
-      "타사": 261,
-      "total": 510
+      "POUR": 48,
+      "다특허": 38,
+      "DO": 4,
+      "CNC": 2,
+      "일반": 196,
+      "타사": 312,
+      "total": 600
     },
     "thisMonthForecast": {
-      "POUR": 54,
-      "다특허": 42,
-      "DO": 4,
-      "CNC": 1,
-      "일반": 217,
-      "타사": 334,
-      "total": 652
+      "POUR": 56,
+      "다특허": 45,
+      "DO": 5,
+      "CNC": 2,
+      "일반": 230,
+      "타사": 366,
+      "total": 704
     },
     "thisMonthMethod": "yoy_day_pattern",
     "thisMonthForecastRunrate": {
-      "POUR": 50,
-      "다특허": 39,
-      "DO": 4,
-      "CNC": 1,
-      "일반": 203,
-      "타사": 311,
-      "total": 608
+      "POUR": 55,
+      "다특허": 44,
+      "DO": 5,
+      "CNC": 2,
+      "일반": 225,
+      "타사": 358,
+      "total": 689
     },
-    "avgGrowthPct": -1.5,
+    "avgGrowthPct": -1.6,
     "growthSampleMonths": 7,
-    "restOfYearForecastTotal": 1602,
+    "restOfYearForecastTotal": 1601,
     "restOfYearMonths": [
       {
         "ym": "2026-09",
-        "forecast": 666
+        "forecast": 665
       },
       {
         "ym": "2026-10",
@@ -970,22 +1031,22 @@
         "forecast": 180
       }
     ],
-    "yearTotalForecast": 6003
+    "yearTotalForecast": 6051
   },
   "forecast_share": {
     "hasEnoughData": true,
     "latestYm": "2026-08",
-    "latestDay": 26,
+    "latestDay": 27,
     "rows": [
       {
         "group": "구분",
         "field": "일반",
-        "share_now": 24.7,
-        "share_year_ago": 27.6,
-        "diff_pct_point": -2.8,
-        "projected_year_end_share": 23.2,
-        "base_now": 1053,
-        "base_year_ago": 1245
+        "share_now": 24.8,
+        "share_year_ago": 27.5,
+        "diff_pct_point": -2.7,
+        "projected_year_end_share": 23.4,
+        "base_now": 1078,
+        "base_year_ago": 1256
       },
       {
         "group": "구분",
@@ -993,95 +1054,95 @@
         "share_now": 10.1,
         "share_year_ago": 8.1,
         "diff_pct_point": 2,
-        "projected_year_end_share": 11.2,
-        "base_now": 432,
-        "base_year_ago": 367
-      },
-      {
-        "group": "구분",
-        "field": "타사",
-        "share_now": 58.6,
-        "share_year_ago": 57.6,
-        "diff_pct_point": 1,
-        "projected_year_end_share": 59.1,
-        "base_now": 2496,
-        "base_year_ago": 2602
+        "projected_year_end_share": 11.1,
+        "base_now": 438,
+        "base_year_ago": 368
       },
       {
         "group": "공종",
         "field": "주차장",
-        "share_now": 11,
-        "share_year_ago": 12.2,
-        "diff_pct_point": -1.2,
-        "projected_year_end_share": 10.3,
-        "base_now": 322,
-        "base_year_ago": 363
+        "share_now": 11.1,
+        "share_year_ago": 12.1,
+        "diff_pct_point": -1.1,
+        "projected_year_end_share": 10.5,
+        "base_now": 330,
+        "base_year_ago": 364
       },
       {
         "group": "공종",
         "field": "기타",
-        "share_now": 8.5,
-        "share_year_ago": 7.5,
+        "share_now": 8.7,
+        "share_year_ago": 7.6,
         "diff_pct_point": 1.1,
-        "projected_year_end_share": 9.1,
-        "base_now": 250,
-        "base_year_ago": 222
+        "projected_year_end_share": 9.3,
+        "base_now": 259,
+        "base_year_ago": 227
       },
       {
         "group": "업체",
         "field": "4A시스템",
         "share_now": 33.8,
-        "share_year_ago": 38.9,
-        "diff_pct_point": -5.1,
-        "projected_year_end_share": 31.1,
-        "base_now": 423,
-        "base_year_ago": 496
+        "share_year_ago": 38.4,
+        "diff_pct_point": -4.7,
+        "projected_year_end_share": 31.3,
+        "base_now": 429,
+        "base_year_ago": 497
       },
       {
         "group": "업체",
         "field": "미래피앤씨",
         "share_now": 9.1,
         "share_year_ago": 6.9,
-        "diff_pct_point": 2.2,
+        "diff_pct_point": 2.3,
         "projected_year_end_share": 10.3,
-        "base_now": 114,
-        "base_year_ago": 88
+        "base_now": 116,
+        "base_year_ago": 89
       },
       {
         "group": "업체",
         "field": "금영ENC",
-        "share_now": 14.9,
-        "share_year_ago": 13,
-        "diff_pct_point": 1.9,
-        "projected_year_end_share": 16,
-        "base_now": 187,
+        "share_now": 15,
+        "share_year_ago": 12.8,
+        "diff_pct_point": 2.1,
+        "projected_year_end_share": 16.1,
+        "base_now": 190,
         "base_year_ago": 166
       },
       {
         "group": "업체",
-        "field": "크랙킹",
-        "share_now": 5.1,
-        "share_year_ago": 3.4,
-        "diff_pct_point": 1.7,
-        "projected_year_end_share": 6,
-        "base_now": 64,
-        "base_year_ago": 43
+        "field": "와이제이종합건설 주식회사",
+        "share_now": 5.2,
+        "share_year_ago": 3.9,
+        "diff_pct_point": 1.3,
+        "projected_year_end_share": 5.9,
+        "base_now": 66,
+        "base_year_ago": 50
+      },
+      {
+        "group": "업체",
+        "field": "수퍼크랙실",
+        "share_now": 8.7,
+        "share_year_ago": 9.7,
+        "diff_pct_point": -1,
+        "projected_year_end_share": 8.1,
+        "base_now": 110,
+        "base_year_ago": 125
       }
     ]
   },
   "forecast_journey_win": {
     "hasEnoughData": true,
-    "closedTotal": 414,
-    "l4Pending": 45,
+    "closedTotal": 416,
+    "l4Pending": 50,
     "won": 356,
-    "lostToCompetitor": 27,
+    "lostToCompetitor": 29,
     "lostBidFailed": 31,
-    "win_rate_pct": 86,
-    "expected_additional_wins": 39,
+    "win_rate_pct": 85.6,
+    "expected_additional_wins": 43,
     "expected_additional_losses": 3,
-    "expected_additional_bid_fail": 3,
-    "expected_total_wins": 395
+    "expected_additional_bid_fail": 4,
+    "expected_total_wins": 399
   },
   "forecast_model": "gemini-3.5-flash-lite",
-  "forecast_commentary": "건설 특허공법(POUR) 영업 데이터 기반의 향후 예상치 요약 보고드립니다. 2026년 8월 전체 공고는 전년 동월 패턴을 적용해 월말까지 약 652건, 연간 총 6,000여 건으로 추정됩니다. 구분별 점유율은 일반(약 23.2%), POUR(약 11.2%), 타사(약 59.1%)로 예상되며, 공종 및 주요 경쟁사별 수치 역시 선형 추세 가정에 따라 연말까지의 변화를 산출했습니다. 현재 진행 중인 공고(45건)에는 과거 낙찰률 86%를 적용하여 약 39건의 추가 낙찰이 예상됩니다. 다만, 본 보고서의 수치들은 모두 과거 패턴을 단순 적용한 추정치로서 실제 결과와는 차이가 있을 수 있으며, 특히 표본 건수가 적은 항목의 경우 통계적 신뢰도가 낮으므로 실무 활용 시 유의하시기 바랍니다."
+  "forecast_commentary": "제공해주신 규칙 기반 영업 데이터를 바탕으로 2026년 예상 실적을 요약해 드립니다.\n\n이번 달 전체 공고 건수는 작년 동월 패턴을 적용하여 월말까지 약 704건, 2026년 연간 전체로는 전년 대비 평균 -1.6% 성장을 가정해 약 6,051건이 될 것으로 추정됩니다. 주요 구분, 공종, 그리고 '4A시스템', '미래피앤씨' 등 주요 업체별 점유율은 과거 선형 추세가 연말까지 이어진다는 가정하에 각각 변화할 것으로 예상됩니다. 현재 공고 진행 중인 50건에 과거 낙찰률(85.6%)을 단순 적용하면 약 43건이 추가 낙찰되어 연간 총 399건에 이를 것으로 보입니다. 다만, 이 수치들은 통계적 예측 모델이 아닌 단순 과거 패턴 적용에 불과하며 표본 건수가 적은 항목은 신뢰도가 낮으므로 실제 결과와는 다를 수 있습니다."
 }
