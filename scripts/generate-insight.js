@@ -2368,8 +2368,14 @@ async function main() {
   // "경쟁사 동향"(competitor_watch_trends, v8)으로 대체했습니다 — 그날그날 바뀌는 상위
   // 3개 하이라이트보다, 지정된 5개 경쟁사의 실제 최신 동향이 더 유용하다는 피드백입니다.
   // (generateWebInformedActions() 함수 자체는 재사용 가능성을 위해 남겨두되 더 이상 호출하지 않습니다.)
-  console.log('[5/9] 주요 경쟁사 5개사 최신 동향(뉴스) 생성 중...');
-  const competitorWatch = await generateCompetitorWatchTrends(COMPETITOR_WATCHLIST);
+ console.log('[5/9] 주요 경쟁사 5개사 + 신흥 업체 최신 동향(뉴스) 생성 중...');
+const emergingNames = ctx.highlights
+  .filter(h => h.type === 'emerging')
+  .map(h => h.subject)
+  .filter((name, i, arr) => name && arr.indexOf(name) === i);
+if (emergingNames.length) console.log(`  - 신흥 업체 감지: ${emergingNames.join(', ')}`);
+const competitorWatchList = [...COMPETITOR_WATCHLIST, ...emergingNames];
+const competitorWatch = await generateCompetitorWatchTrends(competitorWatchList);
   console.log(competitorWatch.length ? `  - ${competitorWatch.length}건 생성됨` : '  - 생성 안 됨(검색/AI 호출 실패)');
 
   // [v11 추가] 고객여정 퍼널 — 별도 시트/별도 실패 지점이라 나머지 파이프라인에 영향 없도록
