@@ -1385,7 +1385,37 @@ function containsObviouslyOldDate(result, quarterStart) {
   const haystack = `${result.url || ''} ${result.title || ''}`;
   return extractDateLikeStrings(haystack).some(d => d < quarterStart);
 }
-
+function extractPublishDateFromHtml(html) {
+  if (!html) return null;
+  let m;
+  m = html.match(/"datePublished"\s*:\s*"(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  m = html.match(/<meta[^>]+(?:property|name)=["'](?:article:published_time|og:article:published_time|date|pubdate|DC\.date\.issued)["'][^>]+content=["'](\d{4}-\d{2}-\d{2})/i);
+  if (m) return m[1];
+  m = html.match(/(?:입력|등록|발행일?|승인)\s*[:|]?\s*(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  return null;
+}
+async function fetchAndCheckDate(url, quarterStart) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    clearTimeout(timer);
+    if (!res.ok) return true;
+    const html = await res.text();
+    const date = extractPublishDateFromHtml(html);
+    if (date && date < quarterStart) return false;
+    return true;
+  } catch (e) {
+    return true;
+  }
+}
+async function verifyResultsNotStale(results, quarterStart) {
+  if (!results.length) return results;
+  const verdicts = await Promise.all(results.map(r => fetchAndCheckDate(r.url, quarterStart)));
+  return results.filter((r, i) => verdicts[i]);
+}
 // [v17 수정 — 2026-08-18] Joe 요청("주요 경쟁사 동향은 분기로 하자. 작년은 너무 오래 된
 // 동향이야") — 기존에는 1차 검색을 topic=news + time_range=month(최근 1개월)로 좁혀
 // 검색하고, 결과가 없으면 기간 제한이 전혀 없는 topic=general로 재검색했습니다. 이 "기간
@@ -1417,7 +1447,8 @@ async function generateCompetitorWatchTrends(companyNames) {
   
       results = results.filter(r => resultMentionsCompany(r, name));
 results = results.filter(r => !r.published_date || r.published_date >= quarterStart); 
-results = results.filter(r => !containsObviouslyOldDate(r, quarterStart));      // 이 줄 추가
+results = results.filter(r => !containsObviouslyOldDate(r, quarterStart));
+      results = await verifyResultsNotStale(results, quarterStart);// 이 줄 추가
       // 5개사 모두가 매일 새 "뉴스"에 나오는 대기업은 아니라, 뉴스 검색이 비어 있으면
       // 일반 웹 검색으로 한 번 더 시도합니다(결과 없음으로 카드가 비는 것을 줄이기 위함).
       // [v17] 이 폴백도 더 이상 무제한 기간이 아니라 동일한 최근 1분기(90일)로 제한합니다.
@@ -1427,6 +1458,7 @@ results = results.filter(r => !containsObviouslyOldDate(r, quarterStart));      
   results = results.filter(r => !r.published_date || r.published_date >= quarterStart);
   // ↑ 이 줄 바로 다음에 아래 한 줄 추가
   results = results.filter(r => !containsObviouslyOldDate(r, quarterStart));
+   results = await verifyResultsNotStale(results, quarterStart);
 }
       searchPerCompany.push({ name, results });
     } catch (e) {
