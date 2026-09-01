@@ -1227,11 +1227,12 @@ async function callTavilySearch(query, maxResults, opts) {
     throw new Error(`Tavily 검색 API 호출 실패: HTTP ${res.status} ${errText}`);
   }
   const json = await res.json();
-  return (json.results || []).map(r => ({
-    title: r.title || r.url,
-    url: r.url,
-    content: (r.content || '').slice(0, 400),
-  }));
+return (json.results || []).map(r => ({
+  title: r.title || r.url,
+  url: r.url,
+  content: (r.content || '').slice(0, 400),
+  published_date: r.published_date || null,
+}));
 }
 
 function extractJsonArray(text) {
@@ -1397,14 +1398,17 @@ async function generateCompetitorWatchTrends(companyNames) {
       let results = await callTavilySearch(query, 5, { topic: 'news', startDate: quarterStart });
       // [v16] 회사명이 실제로 등장하지 않는 결과(검색 엔진의 느슨한 매칭으로 섞여 들어온
       // 무관한 기사)는 AI에게 넘기기 전에 먼저 제거합니다.
+  
       results = results.filter(r => resultMentionsCompany(r, name));
+results = results.filter(r => !r.published_date || r.published_date >= quarterStart);  // 이 줄 추가
       // 5개사 모두가 매일 새 "뉴스"에 나오는 대기업은 아니라, 뉴스 검색이 비어 있으면
       // 일반 웹 검색으로 한 번 더 시도합니다(결과 없음으로 카드가 비는 것을 줄이기 위함).
       // [v17] 이 폴백도 더 이상 무제한 기간이 아니라 동일한 최근 1분기(90일)로 제한합니다.
-      if (results.length === 0) {
-        const general = await callTavilySearch(query, 5, { topic: 'general', startDate: quarterStart });
-        results = general.filter(r => resultMentionsCompany(r, name));
-      }
+     if (results.length === 0) {
+  const general = await callTavilySearch(query, 5, { topic: 'general', startDate: quarterStart });
+  results = general.filter(r => resultMentionsCompany(r, name));
+  results = results.filter(r => !r.published_date || r.published_date >= quarterStart);
+}
       searchPerCompany.push({ name, results });
     } catch (e) {
       console.warn(`  - ⚠ Tavily 검색 실패(${name}, 계속 진행): ${e.message}`);
