@@ -1369,6 +1369,22 @@ function resultMentionsCompany(result, name) {
   if (!n) return true;
   return norm(result.title).includes(n) || norm(result.content).includes(n);
 }
+function extractDateLikeStrings(text) {
+  const found = [];
+  if (!text) return found;
+  let m;
+  const reCompact = /(?:^|[^0-9])(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:[^0-9]|$)/g;
+  while ((m = reCompact.exec(text))) found.push(`${m[1]}-${m[2]}-${m[3]}`);
+  const reSep = /(20\d{2})[.\-\/](0?[1-9]|1[0-2])[.\-\/](0?[1-9]|[12]\d|3[01])/g;
+  while ((m = reSep.exec(text))) found.push(`${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`);
+  const reKr = /(20\d{2})년\s*(0?[1-9]|1[0-2])?월?/g;
+  while ((m = reKr.exec(text))) found.push(`${m[1]}-${String(m[2] || 1).padStart(2, '0')}-01`);
+  return found;
+}
+function containsObviouslyOldDate(result, quarterStart) {
+  const haystack = `${result.url || ''} ${result.title || ''}`;
+  return extractDateLikeStrings(haystack).some(d => d < quarterStart);
+}
 
 // [v17 수정 — 2026-08-18] Joe 요청("주요 경쟁사 동향은 분기로 하자. 작년은 너무 오래 된
 // 동향이야") — 기존에는 1차 검색을 topic=news + time_range=month(최근 1개월)로 좁혀
@@ -1400,14 +1416,17 @@ async function generateCompetitorWatchTrends(companyNames) {
       // 무관한 기사)는 AI에게 넘기기 전에 먼저 제거합니다.
   
       results = results.filter(r => resultMentionsCompany(r, name));
-results = results.filter(r => !r.published_date || r.published_date >= quarterStart);  // 이 줄 추가
+results = results.filter(r => !r.published_date || r.published_date >= quarterStart); 
+results = results.filter(r => !containsObviouslyOldDate(r, quarterStart));      // 이 줄 추가
       // 5개사 모두가 매일 새 "뉴스"에 나오는 대기업은 아니라, 뉴스 검색이 비어 있으면
       // 일반 웹 검색으로 한 번 더 시도합니다(결과 없음으로 카드가 비는 것을 줄이기 위함).
       // [v17] 이 폴백도 더 이상 무제한 기간이 아니라 동일한 최근 1분기(90일)로 제한합니다.
-     if (results.length === 0) {
+ if (results.length === 0) {
   const general = await callTavilySearch(query, 5, { topic: 'general', startDate: quarterStart });
   results = general.filter(r => resultMentionsCompany(r, name));
   results = results.filter(r => !r.published_date || r.published_date >= quarterStart);
+  // ↑ 이 줄 바로 다음에 아래 한 줄 추가
+  results = results.filter(r => !containsObviouslyOldDate(r, quarterStart));
 }
       searchPerCompany.push({ name, results });
     } catch (e) {
